@@ -42,21 +42,42 @@
 
 ## 4. 环境
 
-- Python 3.12
-- 依赖见 `requirements.txt`
-- **全部安装在项目内虚拟环境 `.venv`,不污染系统 Python 与 DSH 运行时**
-
-### 搭建
+使用本机用户级 Python 3.12(标准安装,已有 numpy / matplotlib / torch):
 
 ```
-python -m venv .venv
-.venv/Scripts/python -m pip install -r requirements.txt
+python
+```
+
+实测版本:
+
+| 包 | 版本 |
+|---|---|
+| Python | 3.12.10 |
+| numpy | 2.5.1 |
+| scipy | 1.18.1 |
+| matplotlib | 3.11.1 |
+| torch | 2.13.0+cpu |
+
+无 GPU,全部计算走 CPU。
+
+### 补齐依赖
+
+本机已装齐。若在其他机器重建:
+
+```
+python -m pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 ```
 
 ### 一键复现
 
 ```
-.venv/Scripts/python run_all.py
+python run_all.py
+```
+
+### 验证脚本
+
+```
+python tests/check_green.py      # 1.1 格林函数
 ```
 
 ## 5. 目录

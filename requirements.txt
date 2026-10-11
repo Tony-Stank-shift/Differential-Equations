@@ -1,13 +1,14 @@
-# Python 3.12
-# 安装:python -m venv .venv && .venv/Scripts/python -m pip install -r requirements.txt
+# 运行环境:用户级 Python 3.12(本机路径见下),Windows x64,全部以 CPU 运行(本机无 GPU)
 #
-# 说明:
-#   numpy        —— 全部数值计算(numpy 自带,但 venv 内需单独安装)
-#   scipy        —— 汉克尔函数 / 特殊函数;正确性验证的对照基准
-#   matplotlib   —— 论文插图
-#   torch        —— 第 4 阶段神经网络(CPU 版即可,本机无 GPU)
+#   python
+#
+# 注意:本机这些包已经装好,通常无需重装。本文件用于记录版本、便于在其他机器上重建环境,
+#      也便于组员复现。
+#
+# 安装(国内镜像,不需要梯子):
+#   python -m pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 
-numpy>=2.0
-scipy>=1.13
-matplotlib>=3.9
-torch>=2.4
+numpy==2.5.1
+scipy==1.18.1
+matplotlib==3.11.1
+torch==2.13.0
