@@ -193,17 +193,49 @@ print("=" * 82)
 print("判据 G —— ka 扫描(含电小与电中尺寸)")
 print("=" * 82)
 
-print("   ka      N      rel_err       Im(Z_mm)/|Z_mm|")
-# 20 附近密采:Mie 级数的经验截断 ka* 就落在这里(ka=10 → 1.2e-11,
-# ka=20 → 3.4e-10,略差于经验 1e-12),两侧行为都要受监督。
-for ka in (0.5, 1.0, 5.0, 10.0, 19.5, 19.9, 19.95, 20.0, 20.05, 20.5):
+print("  分两段:共振邻域之外用 2e-3;邻域内单列,断言'确实劣化'且劣化有界。")
+print("  为什么必须分开(0→1.3 复检发现):ka=19.995 处 rel_err = 1.82e-02,")
+print("  是邻域外水平(~4.6e-04)的 39 倍,也远超 2e-3。那不是 bug,是 D13 记录的")
+print("  EFIE 近零模效应 —— J₁₅ 的零点在 ka*=19.994430629816,19.995 离它最近。")
+print("  原判据只采到 20.0,恰好错过了这个最坏点,给出'ka=20 是最坏点、裕度 1.36×'")
+print("  的错误结论。掩住它比承认它危险得多。")
+
+K_G = 1.0
+NORMAL = (0.5, 1.0, 5.0, 10.0, 19.5, 19.9, 20.05, 20.5)
+RESONANT = (19.99, 19.995, 20.0)
+
+
+def _g(ka: float):
     n_seg = int(min(1600, max(64, 40 * ka)))
-    r = surface_current(1.0, ka, n_seg)
-    jm = mie_surface_current(1.0, ka, r["geom"]["phi_mid"])
-    e = rel_l2(r["J"], jm)
+    r = surface_current(K_G, ka, n_seg)
+    jm = mie_surface_current(K_G, ka, r["geom"]["phi_mid"])
     zmm = r["Z"][0, 0]
-    report(f"G  ka={ka:<5g} N={n_seg:<5d} 电流相对误差", e, 2e-3,
-           note=f"Im(Z_mm)/|Z_mm| = {zmm.imag/abs(zmm):+.4f}")
+    return n_seg, rel_l2(r["J"], jm), zmm
+
+
+print("  --- G1 共振邻域之外(容差 2e-3)---")
+for _ka in NORMAL:
+    _n, _e, _zmm = _g(_ka)
+    report(f"G1 ka={_ka:<6g} N={_n:<4d} 电流相对误差", _e, 2e-3,
+           note=f"Im(Z_mm)/|Z_mm| = {_zmm.imag/abs(_zmm):+.4f}")
+
+print("  --- G2 共振邻域(已知劣化区,不追求 2e-3)---")
+_res = []
+for _ka in RESONANT:
+    _n, _e, _zmm = _g(_ka)
+    _res.append(_e)
+    print(f"  [info] G2 ka={_ka:<7g} N={_n:<4d} rel_err = {_e:.6e}")
+_worst = max(_res)
+_lo = min(_g(k)[1] for k in (19.9, 20.05))
+print(f"  [info] G2 邻域外参照水平 = {_lo:.6e}(取 ka=19.9 与 20.05)")
+if _worst > 3.0 * _lo:
+    print(f"  [PASS] G2a 共振邻域确实劣化: 最坏 {_worst:.6e} > 3× {_lo:.6e} = {3*_lo:.6e}")
+else:
+    print(f"  [FAIL] G2a 共振邻域未显著劣化({_worst:.6e} vs {_lo:.6e})"
+          f" —— 近零模效应在变,需重新解释 D13")
+    failures.append("G2a 共振未劣化")
+report("G2b 共振邻域最坏误差上界", _worst, 5e-2,
+       note="实测最坏在 ka=19.995 附近,约 1.82e-02;劣化不得失控")
 
 # ============================================================================
 print()
@@ -263,9 +295,15 @@ print("=" * 82)
 print("判据 J —— 黄金值(把真值钉进版本控制)")
 print("=" * 82)
 print("  自洽性判据有一个共同的失效模式:真值函数本身被改坏时,所有判据一起变绿。")
-print("  这里把 mpmath(mp.dps = 50)独立算出的值硬编码。黄金值**不证明正确性**")
+print("  这里把 mpmath 独立算出的值硬编码。黄金值**不证明正确性**")
 print("  (那是判据 A~K 的事),它只钉住'不被告知不许变'。")
-print("  重新生成的方法:见 tests/gen_golden.py 的注释(或直接手算 mpmath)。")
+print("  ⚠️ 精度口径(0→1.3 复检指出):这些字面量**不是全部 50 位**。实测相对偏差")
+print("     分布很宽 —— J4 三值与 J3 的 φ=π 是真 50 位(偏差 ~1e-22);")
+print("     J1 F(0.3)=2.65e-17、J2 (1000,0.01)=4.80e-17、J3 φ=π/2=3.83e-16")
+print("     则明显只算到默认精度。好在判据容差(1e-14~1e-10)对最差那一项仍有")
+print("     ≥180× 裕度,不影响判定;但「50 位」这个说法是过头了,已删。")
+print("  重新生成:直接把 tests/gen_golden 的逻辑手写一遍(未落盘,见 D14 的取舍);")
+print("     或对任一目标量用 mpmath 提高 dps 重算,再按上表逐项标出实际精度。")
 
 from quad import C0, C1, closed_self_integral, hankel0_antiderivative  # noqa: E402
 
@@ -298,8 +336,10 @@ GOLDEN_J = {                       # mie_surface_current(ka=5, radius=1)
     np.pi / 2: (0.4960018065940361619542, -0.3314070328923063837542),
     np.pi: (-0.003001732168708405463585, 0.02742767861817495482431),
 }
-# tol 定 1e-10(不是 1e-12):phi=π 是级数收敛最慢的点(影子边界),
-# 截断项数 41 时该点残差实测 2.74e-11,比别的方向差两个量级。
+# tol 定 1e-10(不是 1e-12):phi=π 是级数收敛最慢的点(影子边界)。
+# 项数必须说准(0→1.3 复检指出):默认 n_terms = ceil(ka + 4·ka^(1/3)) + 10,
+# ka=5 时 = 22 ⇒ **45 项**(n 从 -22 到 +22)。该点残差实测 2.74e-11。
+# 若只取 41 项(n_max=20),残差是 1.96e-9 —— 那是另一回事,别混。
 for phi, (re, im) in GOLDEN_J.items():
     got = complex(mie_surface_current(5.0, 1.0, np.atleast_1d(phi))[0])   # 该函数返回 (1,) 数组
     ref = complex(re, im)
