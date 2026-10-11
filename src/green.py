@@ -1,5 +1,23 @@
 """格林函数与汉克尔函数 —— 二维标量亥姆霍兹方程。
 
+⚠️ 全局约定(整个项目统一,不得单独更改其中任何一条)
+---------------------------------------------------
+    时谐因子      e^{+jωt}
+    出射波        e^{-jkρ}        (与 H_0^{(2)} 的远场相位一致)
+    源项          (∇² + k²) G = +δ(r - r')
+    入射平面波    u_inc = exp(+j k (x cosθ_i + y sinθ_i))
+    格林函数      G(r, r') = (j/4) H_0^{(2)}(k |r - r'|)
+
+这五条是**绑在一起**的。单独改一条(例如给 G 前面的 (j/4) 加个负号)
+会让整套符号不自洽,而不是"换个等价写法"。
+
+若将来要改用 e^{-iωt} 约定(为对齐 Colton–Kress 等文献),**不是改个符号**,
+必须同时改三处:
+    * ``green_2d`` 把 H_0^{(2)} 换成 H_0^{(1)}
+    * ``hankel0_2_small`` 增加 H^{(1)} 分支(``j0 - 1j * y0`` → ``j0 + 1j * y0``)
+    * ``u_inc`` 的指数符号取反
+动手前请先读 DECISIONS.md 的 D6。
+
 物理背景
 --------
 二维 TM 极化下,理想导体(PEC)柱体散射满足标量亥姆霍兹方程
@@ -30,6 +48,8 @@
 这是本项目最容易翻车的地方之一。
 """
 from __future__ import annotations
+
+import warnings
 
 import numpy as np
 from scipy.special import hankel2
@@ -66,7 +86,9 @@ def hankel0_2_small(x, n_terms: int = 60):
     x : array_like
         自变量,通常为 kR。可以是标量、数组,允许复数。
     n_terms : int
-        级数保留项数。|x| <= 0.5 时 60 项远超所需精度。
+        级数保留项数。|x| <= 0.5 时远超所需精度 —— 实测要压到 1e-16
+        只需 8 项,且相消放大因子仅 0.963(无灾难性相消)。
+        本函数**只对 |x| <= 0.5 负责**;超出范围会发出 RuntimeWarning。
 
     Returns
     -------
@@ -74,6 +96,14 @@ def hankel0_2_small(x, n_terms: int = 60):
         与输入同形状的 H_0^{(2)}(x)。标量输入返回 0 维数组,交给上层处理。
     """
     x = np.asarray(x, dtype=complex)
+    if np.any(np.abs(x) > 5.0):
+        warnings.warn(
+            "hankel0_2_small 被用在 |x| > 5 上:级数展开在此范围迅速失准"
+            "(实测相对误差 |x|=10 约 4e-13,|x|=30 约 1e-4,|x|=100 约 1e+40)。"
+            "正常路径请用 hankel0_2(),它会自动切到 scipy 分支。",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     xh = x / 2.0
     xh2 = xh * xh
 
@@ -137,6 +167,14 @@ def green_2d(k, r, rp):
     -------
     ndarray (complex)
         与广播后的 r - rp 形状一致(去掉最后一维坐标轴)。
+
+    Notes
+    -----
+    ``(j/4)`` 这个因子与时谐约定 ``e^{+jωt}`` 绑定(见模块顶部说明)。
+    换约定要连带把 H_0^{(2)} 换成 H_0^{(1)},不是改个正负号。
+
+    R = 0(自耦合)时返回 ``nan + nanj`` 并触发 RuntimeWarning。这不是缺陷:
+    自耦合项在数学上本就奇异,必须由 ``quad.py`` 解析处理,不能靠数值求值。
     """
     r_arr = np.asarray(r, dtype=float)
     rp_arr = np.asarray(rp, dtype=float)
@@ -145,22 +183,45 @@ def green_2d(k, r, rp):
 
 
 def log_singular_part(k, R):
-    """H_0^{(2)} 的对数奇异部分:-(2i/pi) * [ ln(kR/2) + gamma ]。
+    """H_0^{(2)} 的对数奇异部分:-(2j/pi) * [ ln(kR/2) + gamma ]。
 
     由 Y_0 的展开式
 
-        H_0^{(2)} = J_0 - i Y_0
-                  = J_0 - (2i/pi)[ (ln(x/2) + gamma) J_0 + ... ]
-                  = -(2i/pi)[ ln(x/2) + gamma ] + [正则余项]
+        H_0^{(2)} = J_0 - j Y_0
+                  = J_0 - (2j/pi)[ (ln(x/2) + gamma) J_0 + ... ]
+                  = -(2j/pi)[ ln(x/2) + gamma ] + [正则余项]
 
     这里取**完整的常数项**(含 Euler 常数 gamma),而不是只留 ln(x/2),
     使得余项在 x -> 0 时有干净极限:
 
         H_0^{(2)}(x) - log_singular_part(x)  ->  1
 
-    这正是 ``quad.py`` 拆 "解析可积部分 + 正则余项" 时需要的性质 ——
-    漏掉 gamma 会让余项极限变成 1 + 2i*gamma/pi,虽仍是常数但不再干净,
-    后续解析积分容易算错。
+    若漏掉 gamma,余项极限会变成 ``1 - 2j*gamma/pi``(实测
+    ``1 - 0.367466905196616j``)—— 仍是常数但不再干净,后续解析积分容易算错。
+
+    ⚠️ 适用门槛(极易踩坑)
+    ----------------------
+    上式是**渐近**结论,收敛并不快。实测 ``|余项 - 1|``:
+
+        kR = 1e-8    ~ 7e-15
+        kR = 1e-6    ~ 2.4e-12
+        kR = 1e-2    ~ 9.4e-5
+        kR = 0.05    ~ 1.75e-3
+        kR = 0.3     ~ 4.0e-2
+        kR = 0.5     ~ 9.4e-2      <-- 偏离已近 10%
+
+    **只有 kR ≲ 0.05 时才能把余项当常数 1 用。** ``quad.py`` 处理自耦合项
+    必须按这个门槛判断,否则对角元会错约 10%。
+
+    R = 0 时本函数未定义(返回 ``nan+infj`` 并告警)。自耦合项必须由调用方
+    解析处理,不要把 R=0 传进来。
     """
     arr = np.asarray(k * R, dtype=complex)
+    if np.any(arr == 0):
+        warnings.warn(
+            "log_singular_part 在 kR=0 处未定义(将返回 nan+infj)。"
+            "自耦合项必须由调用方解析处理,不要传 R=0 进来。",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     return -(2.0j / np.pi) * (np.log(arr / 2.0) + EULER_GAMMA)
