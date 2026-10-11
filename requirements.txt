@@ -1,0 +1,13 @@
+# Python 3.12
+# 安装:python -m venv .venv && .venv/Scripts/python -m pip install -r requirements.txt
+#
+# 说明:
+#   numpy        —— 全部数值计算(numpy 自带,但 venv 内需单独安装)
+#   scipy        —— 汉克尔函数 / 特殊函数;正确性验证的对照基准
+#   matplotlib   —— 论文插图
+#   torch        —— 第 4 阶段神经网络(CPU 版即可,本机无 GPU)
+
+numpy>=2.0
+scipy>=1.13
+matplotlib>=3.9
+torch>=2.4

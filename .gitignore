@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.ipynb_checkpoints/
+
+# 大体积中间结果(可由 run_all.py 重新生成)
+results/*.npz
+results/*.npy
