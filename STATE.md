@@ -1,7 +1,7 @@
 # STATE — 当前进度
 
 > 每次小项完成后更新。上下文压缩或中断后,靠本文件无损接上。
-> 最后更新:2026-10(1.2 完成:自检全通过 + 第三方复核 4 项已全部修入)
+> 最后更新:2026-10(1.3 完成:自检全通过;待第三方复核)
 
 ## 闸门进度
 
@@ -18,7 +18,7 @@
 | 0 | 目录骨架 + 环境确认 | **done** |
 | 1.1 | green.py:格林函数 + R→0 渐近 | **done**(自检 + 复核均通过,复核 9 项已修入) |
 | 1.2 | quad.py:奇异积分 | **done**(自检全通过 + 第三方复核 4 项已修入;主路径已换 Struve 闭式) |
-| 1.3 | mom.py:稠密求解 | doing |
+| 1.3 | mom.py:稠密求解 | **自检 done,待第三方复核** |
 | 1.4 | ⭐ rcs.py + Mie 对比 | todo |
 | 2.1 | exp02:稠密时间/内存 vs N | todo |
 | 2.2 | 定位内存墙 | todo |
@@ -35,54 +35,55 @@
 | 5.3 | 附录 B:N=4 手算 | todo |
 | 5.4 | 附录 A:代码清单 | todo |
 | 5.5 | 全文通读 + 参考文献 | todo |
-| 6.1 | 第三方独立复核 | 进行中(1.1、1.2 均已复核通过) |
+| 6.1 | 第三方独立复核 | 进行中(1.1、1.2 已通过;1.3 待派) |
 | 6.2 | 组内分工交接 | todo |
 | S1 | [可选] 方向性分块秩测量 | todo |
 
-## ⚠️ 开工 1.3 前必须记住的五条
+## ⚠️ 开工 1.4 前必须记住的五条
 
-1. **符号体系已锁定**(DECISIONS D6):`e^{+jωt}` / `(∇²+k²)G = +δ` / `G = (j/4)H₀⁽²⁾` / `u_inc = exp(+jk·r)`。**这四条绑在一起,不许单独改**。
+1. **符号体系已锁定**(DECISIONS D6 + D11):`e^{+jωt}` / `(∇²+k²)G = +δ` / `G = (j/4)H₀⁽²⁾` / `u_inc = exp(+jk·r)`;**装配式 `Z_mn = +(k/4)∫H₀⁽²⁾`;电流重建场 `E_z^sca = −(k/4)ΣJ_n∫H₀⁽²⁾`**。这一串符号是一条闭合链,改任一处其余必须同改。判据 F(远场与 Mie 同号)就是它的守卫。
 2. **自耦合积分走 `self_coupling_integral`(统一入口,默认 `method="auto"`)**,不要自己去分段。主路径是 Struve 闭式(D10),O(1) 全域有效。
-3. **1.3 的近奇异积分**(场点靠近但不在段上)用**备用路径**:`analytic_part_integral` + `regular_part` 的 Gauss 求积。注意它**只在 `k*a <= 0.5` 保证 1e-12**(实测 ka=0.5 → 8.58e-13,ka=1 → 1.83e-11,ka=5 → 8.62e-8);ka 大时要提高 `order`(ka=5 需 ≥512)。误差全在 `∫R2` 上,不是主部。
-4. **不要对自耦合用任何"整段高斯求积"**:`direct_gauss` 实测误差停在 `3.8e-3 ~ 9.6e-3`,提高阶数无效(被积函数本身发散)。`naive_self_coupling`(把余项当常数 1)最差 `6.06e+00`。
-5. **凡给数值函数定参数,先扫参数空间找失效边界并写成断言** —— 这是 D10 的教训。`check_quad.py` 判据 C2 就是这么来的(它断言分段路径在大 ka **必须**失效)。
+3. **近奇异积分(场点靠近但不在段上)用备用路径**:`analytic_part_integral` + `regular_part` 的 Gauss 求积。它**只在 `k*a <= 0.5` 保证 1e-12**(实测 ka=0.5 → 8.58e-13,ka=1 → 1.83e-11,ka=5 → 8.62e-8);ka 大时要提高 `order`(ka=5 需 ≥512)。
+4. **不要对自耦合用任何"整段高斯求积"**:`direct_gauss` 实测误差停在 `3.8e-3 ~ 9.6e-3`,提高阶数无效。`naive_self_coupling` 最差 `6.06e+00`。
+5. **凡给数值函数定参数,先扫参数空间找失效边界并写成断言**(D10 的教训);**凡给物理量写符号断言,先确认这个量在此离散化下代表什么**(D11 的教训,判据 A3 就是这么写错的)。
 
 ## 已落盘
 
 - `proj/src/green.py` —— `EULER_GAMMA` / `SMALL_THRESHOLD=0.5` / `hankel0_2_small` / `hankel0_2` / `green_2d` / `log_singular_part`
-- `proj/src/quad.py` —— **主路径** `closed_self_integral` + `hankel0_antiderivative`(Struve 闭式);**对照** `series_self_integral`;**备用** `analytic_part_integral` / `regular_part` / `split_self_integral`;入口 `self_coupling_integral(method=auto|closed|series|split)`;**错误做法** `direct_gauss` / `naive_self_coupling`;常量 `C0` / `C1` / `DEFAULT_QUAD_ORDER`
+- `proj/src/quad.py` —— **主路径** `closed_self_integral` + `hankel0_antiderivative`(Struve 闭式);**对照** `series_self_integral`;**备用** `analytic_part_integral` / `regular_part` / `split_self_integral`;入口 `self_coupling_integral(method=auto|closed|series|split)`;**错误做法** `direct_gauss` / `naive_self_coupling`
+- `proj/src/mom.py` —— `circle_geometry` / `assemble_impedance` / `assemble_excitation` / `solve_dense` / `surface_current` / `scattered_field_on_target` / `total_field_residual` / `mie_surface_current` / `mie_scattered_field`
 - `proj/tests/check_green.py` —— 判据 A(mpmath 60dps)+ B(scipy)+ 拼接缩放 + 余项门槛表 + 守卫测试
 - `proj/tests/check_quad.py` —— 判据 A / A2(大 ka 守护)/ A3(双实现)/ B / B3 / C / **C2(防回归)** / D / E / F(备用路径断言)/ G(浮点边界)
+- `proj/tests/check_mom.py` —— 判据 A(循环/对称/耦合衰减)/ B(残差 + 真值代回)/ C(电流 vs Mie)/ D(收敛阶)/ E(节点边界条件残差)/ **F(远场符号守护)** / G(ka 扫描)/ H(入射角)/ I(输入校验)
 - `proj/tests/repro_review.py` —— 复核最小反例存档(用 mpmath 独立真值,非自比)
 - `proj/{README,requirements,.gitignore,run_all.py,DECISIONS,STATE}.md`、`proj/experiments/registry.md`
 
-## 1.2 最终实测数字
+## 1.3 最终实测数字
 
-**自检(`check_quad.py`,EXIT=0 全通过)**
+**判据(`check_mom.py`,EXIT=0 全通过;1.1 / 1.2 回归同时 EXIT=0)**
 
 | 判据 | 内容 | 结果 |
 |---|---|---|
-| A | 主路径 8 组 (k,a),ka ∈ [0.05, 5] vs mpmath | **`3.138e-16`** |
-| A2 | 大 ka:10 / 52 / 256 / 1000 / 1e4 vs mpmath Struve | **`2.442e-14`** |
-| A2 | 闭式公式本身 vs `mp.quad`(小 ka) | **`0.000e+00`** |
-| A3 | 闭式 vs 级数(两条独立实现),ka ∈ [0.01, 0.5] | **`3.110e-16`** |
-| B | 对数主部 / 二阶主部 / 两者之和 | `1.787e-16` / `3.427e-16` / `1.853e-16` |
-| B3 | `|R2-1|/x²` 单调趋零;比值 vs `x⁴|ln(x/2)|` ∈ [0.0124, 0.0183] | PASS |
-| C | 分段路径 order 32/64/128 → `3.178e-15` / `5.468e-15` / `2.437e-14` | PASS |
-| **C2** | **分段路径 ka=1e4 必须失效(`1.058e+01`),主路径同期 `2.442e-14`** | PASS |
-| D1 | `naive_self_coupling` 最差 | **`6.058e+00`** |
-| D2 | `direct_gauss` | `3.836e-3 ~ 9.606e-3` |
-| E | `dI/da = 2H₀⁽²⁾(ka)`;三条路径同点 | `9.607e-11`;三者 `0.000e+00` |
-| F | 备用路径 ka ≤ 0.5(有断言) | **`8.576e-13`** |
-| G | `a = 0.5/k` × 3 缩放 × 3 method = 45 次调用 | 无无谓 ValueError |
+| A1 | 循环结构 `max|Z[m,n] − Z[0,(n−m)%N]|` | **`2.116e-15`** |
+| A2 | `max|Z − Zᵀ|` | **`2.315e-15`** |
+| A4 | `|Z_00| / |Z_0,对径|` | `10.050` |
+| B1 | 相对残差 `‖ZJ−V‖/‖V‖` | **`5.490e-16`** |
+| B2 | Mie 真值代回 `‖Z·Jmie−V‖/‖V‖` | **`1.707e-04`** |
+| C1 | ka=5, N=400 电流相对误差 vs Mie | **`1.9639e-04`**(tol 5e-4) |
+| C2 | ka=1, N=200 电流相对误差 | **`8.7189e-05`** |
+| C3 | 逐点最大误差 / `max|Jmie|` | `1.8415e-04` |
+| D | 收敛:100→200→400→800 | `3.111e-03` → `7.830e-04` → `1.964e-04` → `4.917e-05` |
+| D | 误差比 | **3.973 / 3.987 / 3.994 ⇒ O(h²)** |
+| E1 | 节点 `|E_tot|max/|E_inc|max` | `1.652e-04` |
+| E2 | 节点残差 / 电流误差 | `0.841` |
+| F | `Re[E(from J)/E_mie]`,ρ = 10a / 40a / 150a | **`+0.999984` / `+0.999987` / `+0.999988`** |
+| G | ka = 0.5 / 1 / 5 / 10 / 20 电流相对误差 | `4.774e-04` / `8.452e-04` / `7.830e-04` / `5.427e-04` / **`1.475e-03`** |
+| H | θ_i = 0 / π4 / π2 / π | 全 `1.9639e-04`(与 θ_i 无关,符合圆对称) |
+| I | 四项输入校验 | 全部抛 `ValueError` |
 
-**第三方复核(`quad.py`,独立 subagent,默认找茬)**
+**判据 A3 已删除**(判据设计错误,非代码错):原设想 `Im(Z_mm) < 0` 对应辐射损耗,实测 k=1、a=5 时 `Im(Z_mm) = +9.1448e-02`。根因是 `Z_mm` 含自场奇异性贡献的自能项,**不是输入阻抗**。测试文件中留了注释记载,详见 D11。
 
-- 判定:**通过**(声称 ①②③④⑤ 在声称域内全成立),无 blocker;发现 4 项,已全部修入
-- 复核员给了**三套独立真值**:自推 Struve 闭式、ODE 积分(`solve_ivp` DOP853)、`mp.quad`;两者互证 z=1000 时 `1.47e-13`
-- 复核员的数字我已逐条复现(`tests/repro_review.py`):分段 ka=52 → `1.40e-12`、ka=256 → `4.06`、ka=1000 → `5.53`;备用路径 ka=5 order64 → `8.62e-08`;`2a·H₁⁽²⁾` 误差 `5.26e-01` / `3.25e+00` —— **全部一致**
-- 复核员**推翻了我的两条断言**:①"这个积分没有闭式"错(有 Struve 闭式);②"主路径"其实在 ka ≳ 52 就失效
-- 复核确认**正确**的部分:级数系数递推逐行审无异、`C0`/`C1` 逐位相同、对称因子 2 的修正正确、朴素近似确实会错 ~10%
+**1.3 修入的两个真 bug**:① `E_z^sca` 相对 `∫J·G` 的负号丢失(远场与 Mie 反号,判据 F 抓住);② `mie_*` 级数截断 `ceil(ka)+12` 不够,改为 `ceil(ka + 4·ka^{1/3}) + 10`。
 
 ## 环境事实(实测)
 
@@ -92,13 +93,12 @@
 - 沙箱在 workspace-write 下**禁止 pwsh 子进程出站联网**(curl 全部返回 `000`);机器本身有网,Google/HF/Scholar 需梯子
 - ⚠️ 中文路径在子进程 stderr 中会被 GBK 破坏(Python 自身运行不受影响)
 - 本机 PowerShell 为 5.1(`Get-Content` 无 `-AsByteStream`;`Get-CimInstance` 被沙箱拒绝)
+- Git:仓库在 `proj\`,`user.name` / `user.email` 未配置(commit 需带 `-c user.name=... -c user.email=...`)
 
 ## 下一步
 
-开工 **1.3 `mom.py`:矩量法稠密求解**。要点:
-- 几何:二维 PEC 圆柱,边界离散成 N 段(长度尽量均匀),配点取段中点
-- 非对角元:`Z_mn = -(j/4) ∫_{段 n} G(r_m, r') dl'`,段上 `R` 有正的下确界;N 较大时会出现近奇异,走备用路径(`analytic_part_integral` + `regular_part`)
-- 自耦合元:`Z_mm = -(j/4) * self_coupling_integral(k, Δ/2)`
-- 激励:`V_m = u_inc(r_m) = exp(+jk(x_m cosθ_i + y_m sinθ_i))`
-- 验收:解出表面电流后算 RCS,与 Mie 级数解析解对比(那是 1.4,但 1.3 要把接口留好)
-- 判据必须用独立真值(纪律 D8):Mie 级数是解析解,天然满足
+开工 **1.4 `rcs.py` + Mie 对比**(⭐ 头号里程碑:与 Mie 级数对比,N=320 相对误差 < 2%)。要点:
+- 二维 TM 的远场(ρ → ∞):`E_z^sca(φ) ≈ (j/4)·√(2/(π kρ))·e^{−j(kρ−π/4)}·(由 J 求的散射幅度)`,或直接用 `scattered_field_on_target` 在远场求值
+- 更稳的做法:2D 散射宽度 `σ_2D(φ) = lim_{ρ→∞} 2πρ |E_sca|²/|E_inc|²`,与 Mie 级数同量比较
+- **1.3 的接口已备好**:`scattered_field_on_target(k, geom, J, pts)` 就是这个对比要用的重建函数
+- 判据必须用独立真值(纪律 D8):Mie 级数天然满足;两条独立真值路径 `mie_surface_current` / `mie_scattered_field` 已在 `mom.py` 里
