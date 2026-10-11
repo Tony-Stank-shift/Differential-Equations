@@ -67,8 +67,9 @@ except ImportError:  # pragma: no cover
 
 TOL_A = 1e-12
 TOL_B = 1e-12
-#: 复核员实测分段路径首次越过 1e-12 的 ka 约在 52
-SPLIT_BREAK_KA = 52.0
+# 注:复核员实测分段(split)路径首次越过 1e-12 的 ka 约在 52;判据 C2 已用具体数字
+# 断言这一点。原有一个 `SPLIT_BREAK_KA = 52.0` 常量,全文只出现一次(死常量),
+# 已按 0→1.3 第三方复核 P5 删除。
 failures: list[str] = []
 
 

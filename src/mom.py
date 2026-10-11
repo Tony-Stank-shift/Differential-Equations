@@ -59,6 +59,42 @@ TM 极化(E = E_z ẑ),PEC 边界上总场切向分量 E_z = 0。
     η₀ J_z(φ) = (2 / (π k a)) Σ_n [j^n / H_n⁽²⁾(ka)] e^{jn(φ-θ_i)}
 
 这正是本模块输出量的真值(mie_surface_current)。
+
+============================================================================
+已知限制 —— EFIE 假共振(不是本实现的 bug,是 EFIE 本身的缺陷)
+============================================================================
+TM 圆柱的 EFIE 在 J_n(ka) = 0 处有**假共振(spurious interior resonance)**:
+此时某个模态的 J_n(ka) 趋近于零,离散矩阵的条件数在该点出现**孤立尖峰**
+(不是随 ka 平滑增长的趋势),共振点附近的电流误差被放大一个量级。
+
+实测(半径 1,N = min(1600, max(64, 40·ka)),quad_order = 16):
+
+    ka       cond(Z)      距最近邻点
+    19.50    7.14e+01     —
+    19.75    7.11e+01     —
+    20.00    3.76e+02     ← 孤立尖峰(vmin 主模态 n = 15)
+    20.25    6.86e+01     —
+    20.50    6.89e+01     —
+
+交叉对照:共振点正是 |J_n(ka)| 取得极小值之处。**在 n ≤ ka 的传播模范围内**:
+共振点 |J₁₅(20)| = 8.12e-04,而邻点 ka = 19.75 的最小 |J_n| 是 2.19e-02(n = 11)、
+ka = 20.25 是 1.23e-02(n = 6),分别大 **26.9 倍 / 15.1 倍**。
+同类现象在 ka = 40(|J₂₉(40)| = 9.64e-04)处重复出现,
+说明它是 EFIE 的固有性质而非数值意外。
+
+⚠️ **取模范围必须写明**(0→1.3 复核 P3 指出):上面用的是 n ∈ [0, ⌊ka⌋]。
+若改用 n ∈ [0, ⌈ka⌉+5],极小值会落到 n > ka 的**指数衰减尾部**
+(ka = 19.75 → 8.01e-03 @ n = 25;ka = 20.25 → 5.60e-03 @ n = 26),
+那度量的其实是尾部衰减快慢,不是传播模的近零,复核时会与 n ≤ ka 的取值
+差 2.2~2.7 倍而对不上数。两种取值都支持"孤立尖峰"的结论,但必须交代清楚用的是哪种。
+
+注:|J₁₅(ka)| 在 ka ≈ 20 处是**极小**而非严格过零(19 < ka < 20.5 内不变号),
+所以是"近零模"而非"零模";EFIE 假共振的经典表述是 J_n(ka) → 0,此处取的是它的数值极小。
+
+要在共振点附近保持精度,必须改用 CFIE 或 Müller 形式(对 EFIE 加一个
+磁场积分方程的组合);单独的 EFIE 在数学上就做不到。本项目的做法是
+**声明并绕开**:判据 G 的 ka 表在 ka = 20 处对 tol 2e-3 只剩约 1.36 倍
+裕度,已补入邻点(19.9 / 19.95 / 20.05)把裕度来源写清。
 """
 
 from __future__ import annotations
@@ -101,8 +137,10 @@ def circle_geometry(radius: float, n_segments: int) -> dict:
         phi_mid  (N,)      各段中点对应的极角
         n, radius
     """
-    if radius <= 0.0:
-        raise ValueError(f"radius 必须为正,收到 {radius!r}")
+    if not np.isfinite(radius) or radius <= 0.0:
+        raise ValueError(f"radius 必须为正的有限数,收到 {radius!r}")
+    if not isinstance(n_segments, (int, np.integer)):
+        raise ValueError(f"n_segments 必须是整数,收到 {n_segments!r}")
     if n_segments < 3:
         raise ValueError(f"n_segments 至少为 3,收到 {n_segments!r}")
 
@@ -136,8 +174,10 @@ def assemble_impedance(k: float, geom: dict, quad_order: int = DEFAULT_QUAD_ORDE
 
     逐行计算,避免一次分配 (N, N, Q, 2) 的中间数组。
     """
-    if k <= 0.0:
-        raise ValueError(f"k 必须为正,收到 {k!r}")
+    if not np.isfinite(k) or k <= 0.0:
+        raise ValueError(f"k 必须为正的有限数,收到 {k!r}")
+    if not isinstance(quad_order, (int, np.integer)) or quad_order < 2:
+        raise ValueError(f"quad_order 必须是 >= 2 的整数,收到 {quad_order!r}")
     n = geom["n"]
     mid, length, tangent = geom["mid"], geom["length"], geom["tangent"]
     half = 0.5 * length
@@ -164,6 +204,10 @@ def assemble_impedance(k: float, geom: dict, quad_order: int = DEFAULT_QUAD_ORDE
 def assemble_excitation(k: float, geom: dict, theta_i: float = 0.0,
                         amplitude: float = 1.0) -> np.ndarray:
     """V_m = A·exp(+jk(x_m cosθ_i + y_m sinθ_i)),取段中点为配点。"""
+    if not np.isfinite(k) or k <= 0.0:
+        raise ValueError(f"k 必须为正的有限数,收到 {k!r}")
+    if not np.isfinite(theta_i):
+        raise ValueError(f"theta_i 必须是有限数,收到 {theta_i!r}")
     x, y = geom["mid"][:, 0], geom["mid"][:, 1]
     return amplitude * np.exp(1j * k * (x * np.cos(theta_i) + y * np.sin(theta_i)))
 
@@ -175,7 +219,12 @@ def solve_dense(Z: np.ndarray, V: np.ndarray) -> tuple[np.ndarray, float]:
     不是对物理正确性的检查 —— 物理正确性必须靠 Mie 级数(见模块 docstring)。
     """
     J = np.linalg.solve(Z, V)
-    rel_resid = float(np.linalg.norm(Z @ J - V) / np.linalg.norm(V))
+    v_norm = float(np.linalg.norm(V))
+    if v_norm == 0.0:
+        # V 恒零(如 amplitude=0)时 J 也恒零,残差比 0/0 无定义。
+        # 显式约定为 0,免得在调用方变成一个 nan 和一条 RuntimeWarning。
+        return J, 0.0
+    rel_resid = float(np.linalg.norm(Z @ J - V) / v_norm)
     return J, rel_resid
 
 
@@ -201,7 +250,17 @@ def scattered_field_on_target(k: float, geom: dict, J: np.ndarray,
 
     points 形状 (P, 2)。场点若非常靠近某段,被积函数会近奇异,此处用普通
     Gauss 求积;本函数只用于边界条件残差这类诊断,不进入迭代求解。
+
+    ⚠️ 必须用偶阶:Gauss-Legendre 的奇数阶会把 t = 0 也当作节点,当场点正好
+    落在某一段上时该节点的 R = 0,被下方 vals[~off] = 0.0 直接置零,等于丢掉
+    自积分的中心贡献。实测 total_field_residual(on_nodes=False) 在 quad_order
+    从 64 变 65 时从 4.30e-04 劣化到 5.12e-03(12 倍)。因此这里显式拒绝奇数阶,
+    而不是让它静默劣化。
     """
+    if not isinstance(quad_order, (int, np.integer)) or quad_order < 2:
+        raise ValueError(f"quad_order 必须是 >= 2 的整数,收到 {quad_order!r}")
+    if int(quad_order) % 2 != 0:
+        raise ValueError(f"quad_order 必须为偶数,收到 {quad_order!r}(奇数阶会让 t=0 成为节点)")
     mid, length, tangent = geom["mid"], geom["length"], geom["tangent"]
     nodes, weights = np.polynomial.legendre.leggauss(int(quad_order))
     half = 0.5 * length
@@ -215,7 +274,7 @@ def scattered_field_on_target(k: float, geom: dict, J: np.ndarray,
         vals = np.empty(R.shape, dtype=complex)
         off = R > 0.0
         vals[off] = hankel0_2(k * R[off])
-        vals[~off] = 0.0
+        vals[~off] = 0.0                           # R=0 只在配点自身上;本分支不被覆盖
         integ = half * np.sum(weights[None, :] * vals, axis=1)
         out[p] = -0.25 * k * np.sum(J * integ)
     return out
@@ -257,14 +316,26 @@ def mie_surface_current(k: float, radius: float, phi, theta_i: float = 0.0,
 
         η₀ J_z(φ) = (2 / (π k a)) Σ_n [j^n / H_n⁽²⁾(ka)] e^{jn(φ-θ_i)}
 
-    截断项数默认 ceil(ka) + 12;圆柱散射的级数收敛很快,该截断在 ka ≤ 100 内
-    足以到机器精度。phi 可为标量或数组。
+    截断项数默认 ceil(ka + 4·ka^(1/3)) + 10。圆柱散射的级数收敛很快,但**不是**
+    机器精度 —— 实测截断相对误差(默认项数 vs 2 倍项数)为:
+
+        ka      L2 截断误差       max|ΔJ|/max|J|
+        1       1.11e-16          同量级
+        5       4.94e-13          —
+        10      1.20e-11          —
+        20      3.43e-10          2.56e-10
+        100     2.69e-08          2.16e-08
+
+    即优于 1e-12 只到 ka ≈ 10。本项目判据用到 ka ≤ 20,此时 3.4e-10 远小于
+    离散误差(~1e-4 量级),故不影响结论。phi 可为标量或数组。
     """
     from scipy.special import hankel2
 
     ka = k * radius
     if ka <= 0.0:
         raise ValueError(f"k*radius 必须为正,收到 {ka!r}")
+    if n_terms is not None and (not isinstance(n_terms, (int, np.integer)) or n_terms < 1):
+        raise ValueError(f"n_terms 必须为 None 或 >= 1 的整数,收到 {n_terms!r}")
     if n_terms is None:
         n_terms = int(np.ceil(ka + 4.0 * ka ** (1.0 / 3.0))) + 10
     ns = np.arange(-n_terms, n_terms + 1)
@@ -290,12 +361,17 @@ def mie_scattered_field(k: float, radius: float, rho, phi, theta_i: float = 0.0,
     ka = k * radius
     if ka <= 0.0:
         raise ValueError(f"k*radius 必须为正,收到 {ka!r}")
+    rho_arr = np.asarray(rho, dtype=float)
+    if np.any(rho_arr < radius):
+        raise ValueError(
+            "mie_scattered_field 的展开只在散射体外部成立,要求 rho >= radius;"
+            f"收到 rho_min = {float(np.min(rho_arr))!r} < radius = {radius!r}"
+        )
     if n_terms is None:
         n_terms = int(np.ceil(ka + 4.0 * ka ** (1.0 / 3.0))) + 10
     ns = np.arange(-n_terms, n_terms + 1)
 
-    rho_b, phi_b = np.broadcast_arrays(np.asarray(rho, dtype=float),
-                                       np.asarray(phi, dtype=float))
+    rho_b, phi_b = np.broadcast_arrays(rho_arr, np.asarray(phi, dtype=float))
     flat_rho, flat_phi = rho_b.ravel(), phi_b.ravel()
     H = hankel2(ns[None, :], k * flat_rho[:, None])                     # (P, 2M+1)
     coef = (-jv(ns, ka) / hankel2(ns, ka)) * (1j ** ns)                 # (2M+1,)
