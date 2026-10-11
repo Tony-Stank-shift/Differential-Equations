@@ -8,3 +8,8 @@ __pycache__/
 # 大体积中间结果(可由 run_all.py 重新生成)
 results/*.npz
 results/*.npy
+
+# 一次性脚本 / 复核员的临时验证脚本(不留进历史)
+_tmp_*.py
+_rev*.py
+_scratch/
