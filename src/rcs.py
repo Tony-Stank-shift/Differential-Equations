@@ -25,9 +25,22 @@
 
     C(k,ρ) = √(2/(πkρ)) · e^{-j(kρ-π/4)}
 
-于是 f(φ) = lim E_z^sca(ρ,φ)/C(k,ρ)。本模块的 ``carrier`` 就是这个 C。
-**不要**写成裸的 e^{-jkρ}/√ρ:那会漏掉 √(2/(πk))·e^{+jπ/4} 这个常数,
-f 整体差常数倍、σ 差常数倍,而所有"自比"判据仍然全绿。
+但**注意换算关系里还有一个常数 G**,因为 `C = G·e^{-jkρ}/√ρ`:
+
+    G := √(2/(πk))·e^{+jπ/4}
+
+所以正确的换算是
+
+    f(φ) = G · lim_{ρ→∞} E_z^sca(ρ,φ) / C(k,ρ)          ← 这个 G 不能漏
+    反过来:E_z^sca / C  →  f/G
+
+⚠️ 2026-10-12 第二轮复核员实测:把 `lim E/C` **直接**当 f,与 f_M 的 rel-L2 是
+**0.8935**(= |1/G − 1|,k=1);补上 G 后是 **1.35e-05**。按错的写,σ 会差 `1/|G|² = πk/2`
+倍(k=1 时高估 57%)。—— 这恰好就是下面这句警告本身犯的错,写文档时尤其要小心。
+
+本模块的 ``carrier`` 就是这个 C,``_amplitude_factor`` 就是这个 G。
+**不要**写成裸的 e^{-jkρ}/√ρ:那会漏掉 G,f 整体差常数倍、σ 差常数倍,
+而所有"自比"判据仍然全绿(判据 A 专门守这条)。
 
 ⚠️⚠️ D19 最重要的那条(2026-10-12 逐模态实测定位,接续必读):
 **Mie 侧的角核是 `(−1)ⁿ·C_n`,既不是 `C_n`,也不是 `jⁿ·C_n`。**
@@ -90,8 +103,14 @@ P = ρ∫|E_sca|²dφ,入射强度 = |E_inc|²,总散射宽度 σ_tot = P/强度
 (⚠️ 该约定常见于二维散射的教材,但**本文件未逐条核对具体出处** —— 若论文要引用它,
 须先查证原始文献再写。这里列出来只为说明"2π 记在哪"这件事本身容易混。)
 两个约定不能混用。2026-10-12 复核员抓到本文件曾把 `2πρ` 的定义与不带 2π 的实现
-并列写在一起(差正好 2π),而**没有任何判据能发现** —— 因为判据 E 的两边都写在
-实现约定里。钉住 σ 定义的唯一独立锚点是真实空间能流积分,见判据 S。
+并列写在一起(差正好 2π)。
+
+⚠️ 这里有个容易说错的细节(**第二轮复核员用反例纠正了我,原话"判据 E 完全看不见 2π"
+是错的**):E1 的右侧是**独立的物理闭式** `(4/k)Σ|C_n|²`,不是"写在实现约定里的同义量"。
+实测:只把 `scattering_width` 乘 2π(σ 与闭式不一致)⇒ **E1 立刻红**
+(`|∫−闭式|/闭式 = 5.283185 = 2π−1`)。真正看不见的是**一致换约定**:把 σ_2D 与闭式
+参考**一起**乘 2π,E1/E2 都绿,只剩 **S**(真实空间能流)红(实测 0.8408)。
+准确说法:**E 守"σ 与物理闭式一致",S 才守"约定本身选对了"。**
 
 代入 f:ρ 约掉 ⇒ **σ_2D(φ) = |f(φ)|²/|A|²**。
 
@@ -100,7 +119,8 @@ P = ρ∫|E_sca|²dφ,入射强度 = |E_inc|²,总散射宽度 σ_tot = P/强度
 
 ⚠️ 这个等式对 f_M 来说是 **Parseval 恒等式,不是独立物理证据**(2026-10-12 复核员
 指出):f_M 本来就是 G·Σ(−1)ⁿC_n e^{jnφ},Parseval 直接给出
-2π|G|²Σ|C_n|² = (4/k)Σ|C_n|²,两侧相对差实测 **0.00e+00**。所以 E1 只守得住
+2π|G|²Σ|C_n|² = (4/k)Σ|C_n|² —— 代数上恒等(数值残差 ~4.5e-16,判据 E1 实测 1.5e-16,
+**不是字面意义的 0**)。所以 E1 只守得住
 **归一化**(它确实抓得住 K3),对**逐模态相位结构性失明** —— 把角核换成 C_n 或
 jⁿC_n,E1 仍然全绿(这正是本模块自认最重要的那件事)。
 真正独立的是 **E2**(f_J 来自 MoM 电流,不共享 C_n)与 **S**(真实空间能流积分)。
@@ -164,6 +184,28 @@ def _require_finite(result, what: str):
     return result
 
 
+def _as_real_scalar(x, name: str, *, positive: bool = False) -> float:
+    """把标量转成 Python float,并拒绝三类坏输入。
+
+    * **复数** —— ``np.isfinite(1+0j)`` 返回 True,随后的 ``<=`` 比较会抛
+      **TypeError** 而不是 ValueError(违反本模块的输入契约);``theta_i=1j`` 更糟,
+      会**静默返回有限垃圾**(2026-10-12 第二轮复核员实测)。
+    * NaN / inf。
+    * ``positive=True`` 时的非正数。
+    """
+    if np.iscomplexobj(x):
+        raise ValueError(f"{name} 不能是复数,收到 {x!r}")
+    try:
+        v = float(x)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} 必须是实数标量,收到 {x!r}") from exc
+    if not np.isfinite(v):
+        raise ValueError(f"{name} 必须是有限数,收到 {x!r}")
+    if positive and v <= 0.0:
+        raise ValueError(f"{name} 必须是正的有限数,收到 {x!r}")
+    return v
+
+
 def carrier(k: float, rho: float):
     """径向载波因子 ``C(k,ρ) = √(2/(πkρ))·e^{−j(kρ−π/4)}``。
 
@@ -173,8 +215,7 @@ def carrier(k: float, rho: float):
     ⚠️ 本函数过去**零覆盖**(2026-10-12 复核员:把它换成永远返回 42+0j 的桩函数,
     全套自检仍然 29 PASS/0 FAIL)。现已由 ``tests/check_rcs.py`` 判据 A 守护。
     """
-    if not np.isfinite(k) or k <= 0.0:
-        raise ValueError(f"k 必须为正的有限数,收到 {k!r}")
+    k = _as_real_scalar(k, "k", positive=True)
     rho = _as_real_array(rho, "rho")
     if np.any(rho <= 0.0):
         raise ValueError(f"rho 必须为正的有限数,收到 {rho!r}")
@@ -221,8 +262,7 @@ def far_field_amplitude_from_current(k: float, geom: dict, J: np.ndarray,
     ⚠️ 相位 e^{+jk x̂·r'} 的符号来自 D11 的 e^{+jk·r} 入射约定 + 出射波 e^{-jkρ};
     写反会让 f 整体共轭,判据 M/E 立刻红。
     """
-    if not np.isfinite(k) or k <= 0.0:
-        raise ValueError(f"k 必须为正的有限数,收到 {k!r}")
+    k = _as_real_scalar(k, "k", positive=True)
     if not isinstance(geom, dict) or "mid" not in geom or "length" not in geom:
         raise ValueError(
             "geom 必须是含 'mid' 与 'length' 两个键的 dict(mom.circle_geometry 的返回值);"
@@ -283,14 +323,10 @@ def mie_far_field_amplitude(k: float, radius: float, phi, theta_i: float = 0.0,
     """
     from scipy.special import hankel2, jv
 
-    if not np.isfinite(k) or k <= 0.0:
-        raise ValueError(f"k 必须为正的有限数,收到 {k!r}")
-    if not np.isfinite(radius) or radius <= 0.0:
-        raise ValueError(f"radius 必须为正的有限数,收到 {radius!r}")
-    if not np.isfinite(theta_i):
-        raise ValueError(f"theta_i 必须是有限数,收到 {theta_i!r}")
-    if not np.isfinite(amplitude):
-        raise ValueError(f"amplitude 必须是有限数,收到 {amplitude!r}")
+    k = _as_real_scalar(k, "k", positive=True)
+    radius = _as_real_scalar(radius, "radius", positive=True)
+    theta_i = _as_real_scalar(theta_i, "theta_i")
+    amplitude = _as_real_scalar(amplitude, "amplitude")
 
     ka = k * radius
     n_terms = int(np.ceil(ka + 6.0 * ka ** (1.0 / 3.0))) + 60
@@ -316,9 +352,9 @@ def scattering_width(k: float, f_phi, amplitude: float = 1.0) -> np.ndarray:
     ⚠️ 本函数过去不校验 ``f_phi``:NaN/inf 会静默传播,``amplitude=1e-200`` 会因
     |A|² 下溢而返回 inf —— 两者都直接违反它自己的契约(2026-10-12 复核员实测)。
     """
-    if not np.isfinite(k) or k <= 0.0:
-        raise ValueError(f"k 必须为正的有限数,收到 {k!r}")
-    if not np.isfinite(amplitude) or amplitude == 0.0:
+    k = _as_real_scalar(k, "k", positive=True)
+    amplitude = _as_real_scalar(amplitude, "amplitude")
+    if amplitude == 0.0:
         raise ValueError(f"amplitude 必须是非零有限数,收到 {amplitude!r}")
     f = np.asarray(f_phi, dtype=complex)
     if np.any(~np.isfinite(f)):

@@ -80,10 +80,13 @@ NPHI = 4096
 TAU = 2.0 * np.pi
 
 
-def mie_coefficients(k: float, radius: float):
-    """标准 Mie 系数 C_n = -J_n(ka)/H_n^(2)(ka) 与其指标(独立于 rcs.py 重算)。"""
+def mie_coefficients(k: float, radius: float, extra_terms: int = 0):
+    """标准 Mie 系数 C_n = -J_n(ka)/H_n^(2)(ka) 与其指标(独立于 rcs.py 重算)。
+
+    ``extra_terms`` 用来做 **C3 截断自证**:把项数主动加多,看角方向图是否改变。
+    """
     ka = k * radius
-    n_terms = int(np.ceil(ka + 6.0 * ka ** (1.0 / 3.0))) + 60
+    n_terms = int(np.ceil(ka + 6.0 * ka ** (1.0 / 3.0))) + 60 + extra_terms
     ns = np.arange(-n_terms, n_terms + 1)
     return ns, -jv(ns, ka) / hankel2(ns, ka)
 
@@ -156,6 +159,52 @@ rec5 = G5 * (PH5 @ (((-1.0) ** ns5) * C5))
 report("M5  纯解析:超大 kρ 处角核 rel-L2", float(np.linalg.norm(rec5 - _ref5) / np.linalg.norm(_ref5)),
        1e-3, note=f"kρ = {K * _rho5:.0e},渐近误差 ~1/(kρ);不经 MoM")
 
+# ---------------------------------------------------------------------------
+# M6/M7/M8 是 2026-10-12 第二轮复核员指出的三个覆盖缺口:
+#   M6 —— 除判据 C 外**所有判据都在 k=1 跑**,于是 "f_J 丢掉因子 k" 这类错误
+#         只有 C 能红(它实测:注入该错 → 仅 C 红)。补一个 ka=5 的比值判据。
+#   M7 —— `theta_i` 零覆盖:把 `phi_arr - theta_i` 改成 `+ theta_i` 后原本 42/42 全绿。
+#   M8 —— C3「Mie 截断自证」原本没实现,且测试里的 n_terms 公式与 rcs.py 逐字相同,
+#         参考值与实现**共享同一个截断** ⇒ 不能自证。必须主动加项数看结果是否变。
+# ---------------------------------------------------------------------------
+
+# M6:ka=5(即 k=5、radius=1),两条路径仍须一致。这一条让 k 的尺度进入判据。
+_geom5 = circle_geometry(RADIUS, 640)
+_K5 = 5.0 / RADIUS
+_J5, _ = solve_dense(assemble_impedance(_K5, _geom5), assemble_excitation(_K5, _geom5))
+_fJ5 = far_field_amplitude_from_current(_K5, _geom5, _J5, phi)
+_fM5 = mie_far_field_amplitude(_K5, RADIUS, phi)
+_m5 = np.abs(_fM5) > 0.1 * np.max(np.abs(_fM5))
+_r5 = _fJ5[_m5] / _fM5[_m5]
+report("M6  ka=5 时 max|f_J/f_M - 1|", float(np.max(np.abs(_r5 - 1.0))), 1e-2,
+       note="除 C 之外的判据都在 k=1 跑;这条让 k 的尺度进入比值判据")
+
+# M7:theta_i ≠ 0(斜入射)。MoM 侧走 assemble_excitation(theta_i=...),Mie 侧同角。
+_THI7 = np.pi / 3.0
+_J7, _ = solve_dense(assemble_impedance(K, geom),
+                     assemble_excitation(K, geom, theta_i=_THI7))
+_fJ7 = far_field_amplitude_from_current(K, geom, _J7, phi)
+_fM7 = mie_far_field_amplitude(K, RADIUS, phi, theta_i=_THI7)
+_m7 = np.abs(_fM7) > 0.1 * np.max(np.abs(_fM7))
+_r7 = _fJ7[_m7] / _fM7[_m7]
+report("M7  theta_i=π/3 时 max|f_J/f_M - 1|", float(np.max(np.abs(_r7 - 1.0))), 1e-2,
+       note="把 phi-θi 写成 phi+θi 时,这条会红")
+# M7b:圆柱的旋转性 —— 斜入射的方向图应当是正入射方向图平移 θi。
+_shift_err = float(np.max(np.abs(_fJ7[_m7] - far_field_amplitude_from_current(K, geom, J, phi[_m7] - _THI7))))
+report("M7b |f(φ;θi) - f(φ-θi;0)| 的绝对偏差(相对 max|f|)",
+       _shift_err / np.max(np.abs(_fM7)), 1e-2, note="几何旋转对称性的直接检验")
+
+# M8:C3 截断自证 —— 主动把 Mie 项数加多,角方向图必须不变。
+for _ka8 in (1.0, 10.0):
+    _k8 = _ka8 / RADIUS
+    _w8 = np.exp(1j * np.outer(phi, mie_coefficients(_k8, RADIUS)[0]))
+    _base = _w8 @ mie_coefficients(_k8, RADIUS)[1]
+    _ns8, _C8 = mie_coefficients(_k8, RADIUS, extra_terms=50)
+    _more = np.exp(1j * np.outer(phi, _ns8)) @ _C8
+    report(f"M8  ka={_ka8:g} 默认项数 vs +50 项的 rel-L2",
+           float(np.linalg.norm(_more - _base) / np.linalg.norm(_base)), 1e-12,
+           note="C3(Mie 截断自证);用来排除'参考值与实现共享同一个错截断'")
+
 # ============================================================================
 print()
 print("=" * 84)
@@ -195,10 +244,14 @@ print()
 print("=" * 84)
 print("判据 S --- σ 定义的独立锚点:真实空间能流积分")
 print("=" * 84)
-print("  这是唯一能钉住「σ_2D 带不带 2π」的判据。判据 E 的两边都写在实现约定里,")
-print("  所以 2π 记账错对 E 完全不可见(2026-10-12 复核员抓到 docstring 曾写 2πρ)。")
+print("  这是唯一能钉住「σ_2D 带不带 2π」的判据。")
+print("  ⚠️ 准确说是:「E 守 σ 与物理闭式一致,S 才守约定本身选对了」。")
+print("  第二轮复核员用反例纠正了'2π 对 E 完全不可见'的说法:只把 scattering_width 乘 2π")
+print("  (σ 与闭式不一致)→ E1 立刻红(= 2π−1);只有把 σ 与闭式**一起**乘 2π(一致换")
+print("  约定)时 E1/E2 才绿,此时只剩 S 红(实测 0.8408)。")
 print("      总散射宽度 σ_tot = ρ∫_0^{2π}|E_sca|²dφ  必须等于  ∫σ_2D(φ)dφ")
 print("  (ρ 是径向因子:二维 Poynting 通量 ∝ ρ∮|E_z|²dφ,入射强度 ∝ |E_inc|²。)")
+print("  ⚠️ E 与 S 都只约束 ∫σ dφ,都不约束**角分布** —— 这是本套自检的已知边界。")
 
 int_sigma_J = sphere_quadrature(phi, scattering_width(K, f_J))
 for _rho_s in (1e3 * RADIUS, 1e4 * RADIUS):
@@ -239,6 +292,11 @@ print("  削弱判据。等它真的发生再加,并说明理由。")
 print("  ⚠️ 精度由 **N/ka(每波长段数)** 决定,不是由 N 单独决定:")
 print("      每波长段数 = λ/(弦长) ≈ N/ka;误差 ~ (ka/N)²  ⇒ 2% 需要 N/ka ≳ 20")
 print("      实测 N/ka = 320/64/32/21/10.7 → 3.7e-5 / 9.8e-4 / 4.8e-3 / 1.5e-2 / 6.1e-2")
+print("  ⚠️⚠️ 但「N/ka ≳ 20 ⇒ 2%」只在 ka ≲ 40 成立(第二轮复核员用固定 N/ka=20 扫 ka")
+print("      推翻了我的普遍性主张):ka=1 → 9.93e-3、10 → 1.22e-2、20 → 1.50e-2、")
+print("      40 → 1.91e-2、**50(N=1000)→ 2.073e-2**、**80(N=1600)→ 2.573e-2** ⇒ 都超 2%。")
+print("      即误差**不是** ka/N 的纯函数,还随 ka 缓慢恶化(相位误差沿周长累积)。")
+print("      论文里给这个门槛时必须带适用范围,不能当普适定律。")
 
 geom_acc = circle_geometry(RADIUS, N_ACC)
 for ka_target in (1.0, 5.0, 10.0):
@@ -310,6 +368,12 @@ check_raises("I14 f_J 的 phi 为复数(旧:静默丢虚部)",
              far_field_amplitude_from_current, K, geom, J, np.array([0.0 + 1.0j]))
 check_raises("I15 carrier(1e-320, 1.0)(旧:静默 inf)", carrier, 1e-320, 1.0)
 check_raises("I16 f_M radius=1e-300(旧:静默 nan)", mie_far_field_amplitude, K, 1e-300, 0.0)
+check_raises("I17 f_M 的 theta_i=1j(旧:静默返回有限垃圾)",
+             mie_far_field_amplitude, K, RADIUS, np.array([0.0]), 1j)
+check_raises("I18 carrier 的 k=1+0j(旧:TypeError 而非 ValueError)", carrier, 1 + 0j, 1.0)
+check_raises("I19 f_M 的 k=1+0j(旧:TypeError 而非 ValueError)",
+             mie_far_field_amplitude, 1 + 0j, RADIUS, np.array([0.0]))
+check_raises("I20 σ_2D 的 amplitude=1j", scattering_width, K, f_M, 1j)
 
 np.seterr(**_ErrState)                # 恢复 numpy 的默认浮点错误策略
 
@@ -342,8 +406,8 @@ def _m_metric(f_bad: np.ndarray, label: str, tol: float = 1e-3) -> None:
     must_fail(f"{label}: max|f_J/f_M' - 1|", float(np.max(np.abs(r - 1.0))), tol)
 
 
-_m_metric(G * (PH @ C), "K1a 角核写成 C_n(少 π/2)")
-_m_metric(G * (PH @ ((1j ** ns) * C)), "K1b 角核写成 jⁿC_n(多 π/2)")
+_m_metric(G * (PH @ C), "K1a 角核写成 C_n(相对正确值旋转 π,即 180°)")
+_m_metric(G * (PH @ ((1j ** ns) * C)), "K1b 角核写成 jⁿC_n(旋转 ∓π/2,即 90°)")
 _m_metric(G * (PH @ (((-1j) ** ns) * C)), "K1c 角核写成 (−j)ⁿC_n")
 
 # K4:M5 的鉴别力 —— 同一批错角核在纯解析路径上必须给出 O(1) 的 rel-L2
@@ -363,6 +427,31 @@ must_fail("K2  f_J 取共轭后 max|f_J/f_M - 1|",
 _x5 = 1e5
 must_fail("K5  carrier 换成 42+0j 桩函数后判据 A 的度量",
           abs(complex(hankel2(0, _x5) / (42.0 + 0.0j)) - 1.0), 1e-4)
+
+# K6:K7:K8 —— 第二轮复核员指出的三个覆盖缺口各自的孪生反例
+# K6:C3 截断自证必须有鉴别力 —— 把项数砍到 |n| ≤ 5,必须红
+for _ka6 in (1.0, 10.0):
+    _k6 = _ka6 / RADIUS
+    _ns6 = np.arange(-5, 6)
+    _C6 = -jv(_ns6, _k6 * RADIUS) / hankel2(_ns6, _k6 * RADIUS)
+    _cut6 = np.exp(1j * np.outer(phi, _ns6)) @ _C6
+    _ns6b, _C6b = mie_coefficients(_k6, RADIUS)
+    _base6 = np.exp(1j * np.outer(phi, _ns6b)) @ _C6b
+    must_fail(f"K6  ka={_ka6:g} 把 Mie 项数砍到 |n|≤5 时 M8 的度量",
+              float(np.linalg.norm(_cut6 - _base6) / np.linalg.norm(_base6)), 1e-12)
+
+# K7:把 Mie 侧的 (φ-θi) 写成 (φ+θi) -> M7 必须红
+_fM7_bad = mie_far_field_amplitude(K, RADIUS, phi, theta_i=-_THI7)
+_m7b = np.abs(_fM7_bad) > 0.1 * np.max(np.abs(_fM7_bad))
+must_fail("K7  theta_i 反号后 M7 的度量",
+          float(np.max(np.abs(_fJ7[_m7b] / _fM7_bad[_m7b] - 1.0))), 1e-2)
+
+# K8:f_J 丢掉因子 k -> M6(ka=5)必须红;而它在 k=1 的 M1 上不可见
+_fJ5_nok = far_field_amplitude_from_current(_K5, _geom5, _J5, phi) / _K5
+must_fail("K8  f_J 丢因子 k 后 M6(ka=5)的度量",
+          float(np.max(np.abs(_fJ5_nok[_m5] / _fM5[_m5] - 1.0))), 1e-2)
+print("        对照:同一个错误在 k=1 时是**恒等操作**(f_J/1 ≡ f_J),所以 M1 完全看不见")
+print("        —— 这正是必须补 M6(ka=5)的理由。")
 
 # K3:把前置因子 √(2/(πk))e^{jπ/4} 拿掉 -> E1 必须红
 #     |1/G|² = πk/2,所以拿掉后能量积分为 σ·(πk/2) ≠ σ。
