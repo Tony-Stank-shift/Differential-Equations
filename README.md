@@ -78,7 +78,22 @@ python run_all.py
 
 ```
 python tests/check_green.py      # 1.1 格林函数
+python tests/check_quad.py       # 1.2 奇异积分
+python tests/check_mom.py        # 1.3 矩量法(含黄金值 J 与鉴别力 K 判据)
 ```
+
+### 自耦合积分走哪条路(容易记反,务必看这条)
+
+统一入口 `quad.self_coupling_integral(k, half_len)`,默认 `method="auto"`,按 `k*a` 自动选:
+
+| 条件 | 实际选中 | 说明 |
+|---|---|---|
+| `k*a <= 0.5` | `series_self_integral`(级数逐项解析) | **真实 MoM 网格恒落在这一支** |
+| `k*a > 0.5` | `closed_self_integral`(Struve 闭式) | D10 的"主路径",本项目里未被 `auto` 选中过 |
+
+`mom.py` 的段长用**弦长** `2R sin(π/N)`,故 `k*a = π·ka/N ≈ 1e-2`(实测 ka=5/N=400 时
+`3.93e-2`)。两条路数值都正确,但**论文里不要写"默认走 Struve 闭式"**。详见
+`DECISIONS.md` 的 D10 补充更正与 `src/quad.py` 模块 docstring 顶端。
 
 ## 5. 目录
 
