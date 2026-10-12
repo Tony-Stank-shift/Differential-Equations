@@ -284,16 +284,59 @@ report("T2  电流侧 σ_ext vs 闭式(N=640)",
        / sigma_ref,
        5e-3, note="f_J 来自 MoM 电流 ⇒ 这一条才是真独立证据")
 
-# T3:θi 无关性(σ_ext 是散射体的性质,不该随入射角变)
-_ext_0 = extinction_width(K, far_field_amplitude_from_current(K, geom, J, _FWD))
-_ext_thi = extinction_width(K, far_field_amplitude_from_current(K, geom, _J7, forward_direction(_THI7)))
-report("T3  θi=0 与 θi=π/3 的 σ_ext 相对差", abs(_ext_0 - _ext_thi) / sigma_ref, 1e-3,
-       note=f"{_ext_0:.10f} vs {_ext_thi:.10f}")
+# ---------------------------------------------------------------------------
+# T3 系列 —— 2026-10-12 第 10 轮复核的修入(复核员原话:T3 是"仿射盲"的近恒真判据)
+# ---------------------------------------------------------------------------
+# 旧版只有一条 "θi=0 与 θi=π/3 的 σ_ext 相对差"(现降级为下面的 [info])。
+# 复核员实测:ext(θi,φ) 有旋转等变性 ⇒ 对**任意仿射**角映射 F(θi)=θi+c,该度量恒 ~0,
+# 包括 c=0(即"方向 bug"本身)。本机复测确认:正确/返回θi/θi−π/θi+π/2/π+0.01 全部
+# ≤3.0e-16 PASS,只有非仿射(2θi+π)才红(1.73e-01)。
+# ⇒ 一个永远不红的判据按 D14 不算判据,故拆成三条**非恒真**的锚点。
+#
+# T3a:直接钉住返回值本身(唯一能挡住"只在 θi≠0 处错"的实现)。
+_thi_probe = np.array([0.0, np.pi / 3.0, -np.pi / 4.0, 2.3])
+_fd_err = float(np.max(np.abs(
+    np.array([forward_direction(t) for t in _thi_probe]) - (_thi_probe + np.pi))))
+report("T3a max|forward_direction(θi) - (θi+π)|", _fd_err, 0.0,
+       note="直接断言;仿射偏置(θi+π/2)与只错 θi≠0 的实现都挡得住")
 
-# T4:方向鉴别力(打印出来,供 K9 对照)
+# T3b/T3c:斜入射的单角锚点 —— 与 T1/T2 同构,但换到 θi=π/3。
+#   为什么需要它们:θi≠0 时 σ_ext 的**绝对**值此前只由旧 T3(仿射盲)约束,
+#   而 T1/T2 只在 θi=0 跑(那里 θi−π ≡ θi+π,方向错也看不出来)。
+_ext_b = extinction_width(K, mie_far_field_amplitude(K, RADIUS, forward_direction(_THI7),
+                                                     theta_i=_THI7))
+report("T3b θi=π/3 的 Mie 侧 σ_ext vs (4/k)Σ|C_n|²",
+       abs(_ext_b - sigma_ref) / sigma_ref, 1e-12,
+       note="仿射偏置 θi+π/2 时 = 3.39e-01,会红")
+_ext_c = extinction_width(K, far_field_amplitude_from_current(K, geom, _J7,
+                                                              forward_direction(_THI7)))
+report("T3c θi=π/3 的电流侧 σ_ext vs 闭式(N=640)",
+       abs(_ext_c - sigma_ref) / sigma_ref, 5e-3,
+       note=f"实测 {_ext_c:.9f}(T2 的斜入射同构物)")
+
+# EW:extinction_width 的幅度不变量 —— 本函数按 amplitude 归一化,故对"f 与 amplitude
+#     同步缩放"必须严格不变。这条与 K14 一起堵住"分母用 |A|² 而不是 A"这个错
+#     (复核员实测:该错误在 check_rcs 的 5 个既有调用点全部跑 amplitude=1.0 ⇒ 零覆盖)。
+_f1_ew = mie_far_field_amplitude(K, RADIUS, np.pi)
+_ew_err = 0.0
+for _A_ew in (2.5, 1e-3, 1e6):
+    _ew_err = max(_ew_err, abs(extinction_width(K, _A_ew * _f1_ew, amplitude=_A_ew)
+                               - extinction_width(K, _f1_ew)) / sigma_ref)
+report("EW  extinction_width 的幅度不变性(max over A=2.5/1e-3/1e6)", _ew_err, 1e-12,
+       note="分母写成 |A|² 时 = 6.00e-01,会红")
+
+# [info] 三条**不构成判据**的量,留档以免下一轮复核重复报告:
+_ext_0 = extinction_width(K, far_field_amplitude_from_current(K, geom, J, _FWD))
+_ext_thi = extinction_width(K, far_field_amplitude_from_current(K, geom, _J7,
+                                                                forward_direction(_THI7)))
 _ext_wrong = extinction_width(K, mie_far_field_amplitude(K, RADIUS, 0.0))
-print(f"  [info] T4 若把前向误写成 θi(=0):σ_ext = {_ext_wrong:.6f},而正确值 = {sigma_ref:.6f}"
-      f" —— 相对差 {abs(_ext_wrong - sigma_ref) / sigma_ref:.3f}")
+print(f"  [info] θi=0 vs θi=π/3 的 σ_ext 相对差 = {abs(_ext_0 - _ext_thi) / sigma_ref:.3e}"
+      f"  —— **仿射盲**(旋转等变性使它对任意 F(θi)=θi+c 恒 ~0),不作为判据")
+print(f"  [info] T4 若把前向误写成 θi(=0):σ_ext = {_ext_wrong:.6f},正确值 = {sigma_ref:.6f}"
+      f"  —— 相对差 {abs(_ext_wrong - sigma_ref) / sigma_ref:.3f}(供 K9 对照)")
+print("  [info] 第 10 轮复核把 `forward_direction → θi−π` 报成逃逸故障:**经复算它不是故障**")
+print("         —— θi−π ≡ θi+π (mod 2π),两式在本模块的角函数里逐位等价(实测差 2π、")
+print("         度量 1.502e-16 与正确式相同、电流侧同样 6.038e-06)。它按设计就该绿。")
 
 # ============================================================================
 print()
@@ -407,6 +450,18 @@ check_raises("I19 f_M 的 k=1+0j(旧:TypeError 而非 ValueError)",
              mie_far_field_amplitude, 1 + 0j, RADIUS, np.array([0.0]))
 check_raises("I20 σ_2D 的 amplitude=1j", scattering_width, K, f_M, 1j)
 
+# --- I21–I26:extinction_width 的契约(第 10 轮复核:该函数契约**零覆盖**,
+#     删光它的全部输入守卫后仍 61/61 全绿,违反本项目 D22) ---
+print("  --- extinction_width 的契约(第 10 轮复核补) ---")
+_ff_ok = mie_far_field_amplitude(K, RADIUS, np.pi)
+check_raises("I21 σ_ext 的 f_forward 含 NaN", extinction_width, K, np.array([np.nan + 0j]))
+check_raises("I22 σ_ext 的 f_forward 含 inf", extinction_width, K, np.array([np.inf + 0j]))
+check_raises("I23 σ_ext 的 amplitude=0", extinction_width, K, _ff_ok, 0.0)
+check_raises("I24 σ_ext 的 amplitude=1j", extinction_width, K, _ff_ok, 1j)
+check_raises("I25 σ_ext 的 amplitude=nan", extinction_width, K, _ff_ok, np.nan)
+check_raises("I26 σ_ext 的 k=1e-320(旧:泄漏 RuntimeWarning)",
+             extinction_width, 1e-320, _ff_ok)
+
 np.seterr(**_ErrState)                # 恢复 numpy 的默认浮点错误策略
 
 # ============================================================================
@@ -501,6 +556,37 @@ must_fail("K10 符号写反时 T1 的度量",
 # K11:漏掉前置因子 G(用 f 而不是 f/G)-> 必须红
 must_fail("K11 漏掉 G 时 T1 的度量",
           abs(-(4.0 / K) * np.real(_fM_fwd) - sigma_ref) / sigma_ref, 1e-12)
+
+# K12/K13/K14 —— 第 10 轮复核抓到的三个覆盖缺口的孪生反例
+# K12:仿射偏置的方向映射 F(θi)=θi+π/2 —— 这正是旧 T3 抓不到、而 T3a/T3b 抓得到的东西。
+#      旧 T3 对该映射绿灯(3.0e-16),因为它有旋转等变性;T3b 给 3.39e-01。
+_off = np.pi / 2.0
+must_fail("K12 方向仿射偏置 θi+π/2 时 T3b 的度量",
+          abs(extinction_width(K, mie_far_field_amplitude(K, RADIUS, _THI7 + np.pi + _off,
+                                                          theta_i=_THI7)) - sigma_ref) / sigma_ref,
+          1e-12)
+_t3_old_off = abs(
+    extinction_width(K, far_field_amplitude_from_current(K, geom, J, 0.0 + np.pi + _off))
+    - extinction_width(K, far_field_amplitude_from_current(K, geom, _J7,
+                                                           _THI7 + np.pi + _off))) / sigma_ref
+print(f"        对照:同一个偏置下**旧 T3**(θi 无关性)的度量 = {_t3_old_off:.3e} —— 仿射盲,绿。")
+print("        这就是把 T3 降级为 info、另立 T3a/T3b/T3c 的直接理由(D14)。")
+
+# K13:θi−π 是**等价写法**,不是故障 —— 记在这里,免得下一轮复核再报一次"逃逸"。
+#      θi−π ≡ θi+π (mod 2π),而本模块的角函数对 φ 都是 2π 周期的。
+_ext_m2 = extinction_width(K, mie_far_field_amplitude(K, RADIUS, _THI7 - np.pi, theta_i=_THI7))
+print(f"  [info] K13 `forward_direction → θi−π`(第 10 轮复核报为逃逸故障)的度量 = "
+      f"{abs(_ext_m2 - sigma_ref) / sigma_ref:.3e} —— 与正确式同为 1.502e-16,")
+print(f"        因为 (θi+π)−(θi−π) = 2π。**它不是故障,按设计就该绿**(本判据不设阈值)。")
+
+# K14:EW 的孪生 —— 把归一化分母写成 |A|² 而不是 A,EW 必须红。
+_ew_bad = 0.0
+for _A_k14 in (2.5, 1e-3, 1e6):
+    _ew_bad = max(_ew_bad, abs(-(4.0 / K) * np.real((_A_k14 * _f1_ew)
+                                                    / ((abs(_A_k14) ** 2) * np.sqrt(2.0 / (np.pi * K))
+                                                       * np.exp(1j * np.pi / 4)))
+                               - sigma_ref) / sigma_ref)
+must_fail("K14 归一化用 |A|² 而不是 A 时 EW 的度量", _ew_bad, 1e-12)
 
 # K3:把前置因子 √(2/(πk))e^{jπ/4} 拿掉 -> E1 必须红
 #     |1/G|² = πk/2,所以拿掉后能量积分为 σ·(πk/2) ≠ σ。

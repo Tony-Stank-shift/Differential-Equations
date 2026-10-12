@@ -187,6 +187,14 @@ def forward_direction(theta_i: float = 0.0) -> float:
     ⚠️ 不是 `θ_i`。本约定下入射 `e^{+jk(x cosθ_i+y sinθ_i)}` 配合 `e^{+jωt}`
     的传播方向是 `−(cosθ_i, sinθ_i)`,所以 θ_i=0 时波朝 **−x** 传播、影子在 φ=π。
     实测把前向误写成 θ_i 会得到 σ = 2.059(ka=1)而不是 5.913。
+
+    ⚠️ 返回值只在 **mod 2π** 意义下有物理含义:``θ_i - π`` 与 ``θ_i + π`` 差 2π,
+    代入本模块的角函数后**逐位等价**(2026-10-12 第 10 轮复核曾把 `θ_i-π` 报成
+    "逃逸故障",实为等价写法 —— 见 ``tests/check_rcs.py`` 的 K13)。
+
+    ⚠️ 本函数必须有**直接**断言:σ_ext 对 θ_i 有旋转等变性,所以"比较两个 θ_i 下的
+    σ_ext"这类判据对任何仿射角映射 `F(θ_i)=θ_i+c` 恒真,连方向 bug 都测不到。
+    见 ``tests/check_rcs.py`` 的 T3a/T3b/T3c 与 K12。
     """
     theta_i = _as_real_scalar(theta_i, "theta_i")
     return theta_i + np.pi
@@ -397,7 +405,11 @@ def scattering_width(k: float, f_phi, amplitude: float = 1.0) -> np.ndarray:
     f = np.asarray(f_phi, dtype=complex)
     if np.any(~np.isfinite(f)):
         raise ValueError("f_phi 含非有限值(NaN/inf);上游求解或 Mie 截断可能已失效")
-    return _require_finite(np.abs(f) ** 2 / (abs(amplitude) ** 2), "scattering_width")
+    with np.errstate(all="ignore"):
+        # 上溢/下溢(如 amplitude=1e-200)是要被 _require_finite 转成 ValueError 的,
+        # 不该同时往 stderr 喷 RuntimeWarning —— 那样调用方会以为"有值可用"。
+        out = np.abs(f) ** 2 / (abs(amplitude) ** 2)
+    return _require_finite(out, "scattering_width")
 
 
 def extinction_width(k: float, f_forward, amplitude: float = 1.0) -> np.ndarray:
@@ -416,8 +428,16 @@ def extinction_width(k: float, f_forward, amplitude: float = 1.0) -> np.ndarray:
     ⚠️ 与 Mie 闭式 `(4/k)Σ|C_n|²` 比较时注意独立性:`f_M` 那条共享 `C_n`
     (是代数一致性检查),`f_J`(MoM 电流)那条才是真独立证据。详见模块 docstring。
 
-    实测:ka=1 电流侧 6.04e-06、ka=5 3.21e-05(均为 MoM 离散误差量级);
-    与 θ_i 无关(θ_i = 0 / π/3 / −π/4 给出逐位相同的值)。
+    实测:ka=1 电流侧 6.04e-06、ka=5 3.21e-05(均为 MoM 离散误差量级)。
+
+    ⚠️ **不要**用"两个 θ_i 下的 σ_ext 之差"来验证方向约定 —— σ_ext 有旋转等变性,
+    那个差对任意仿射角映射 `F(θ_i)=θ_i+c` 恒 ~0(第 10 轮复核实测:正确/θ_i/θ_i-π/
+    θ_i+π/2 全部 ≤3e-16 PASS)。有效锚点是**返回值的直接断言**(T3a)与**斜入射的
+    单角绝对值**(T3b/T3c),见 ``tests/check_rcs.py``。
+
+    ⚠️ 已知限制:`k` 极端小(如 1e-300)时,若调用方传入的 `f` 与该 `k` **不自洽**,
+    结果仍是有限数但无物理意义(实测 `extinction_width(1e-300, [1+0j])` → −3.54e150)。
+    这与"amplitude 与 f 配错"同类,是调用方输入不自洽,函数在原理上无法检测,故不加守卫。
     """
     k = _as_real_scalar(k, "k", positive=True)
     amplitude = _as_real_scalar(amplitude, "amplitude")
@@ -426,5 +446,9 @@ def extinction_width(k: float, f_forward, amplitude: float = 1.0) -> np.ndarray:
     f = np.asarray(f_forward, dtype=complex)
     if np.any(~np.isfinite(f)):
         raise ValueError("f_forward 含非有限值(NaN/inf);上游求解或 Mie 截断可能已失效")
-    out = -(4.0 / k) * np.real(f / (amplitude * _amplitude_factor(k)))
+    with np.errstate(all="ignore"):
+        # ⚠️ 这里必须自己吞掉浮点 Warning:第 10 轮复核实测 k=1e-320 时本函数会
+        #    抛 ValueError(正确),但同时往 stderr 泄漏 RuntimeWarning(旧版没有
+        #    errstate,靠调用方的 seterr 块遮挡)。
+        out = -(4.0 / k) * np.real(f / (amplitude * _amplitude_factor(k)))
     return _require_finite(out, "extinction_width")
