@@ -46,7 +46,9 @@ from mom import (  # noqa: E402
 )
 from rcs import (  # noqa: E402
     carrier,
+    extinction_width,
     far_field_amplitude_from_current,
+    forward_direction,
     mie_far_field_amplitude,
     scattering_width,
 )
@@ -266,6 +268,36 @@ for _rho_s in (1e3 * RADIUS, 1e4 * RADIUS):
 # ============================================================================
 print()
 print("=" * 84)
+print("判据 T --- 二维光学定理(D20,2026-10-12 锁定)")
+print("=" * 84)
+print("  ⚠️ 前向/影子方向是 **θi+π**,不是 θi —— 本约定下入射波朝 −(cosθi,sinθi) 传播。")
+print("      σ_ext = −2π·Re[G·conj(f(θi+π))] = −(4/k)·Re[Σ_n C_n]")
+print("  PEC 无耗 ⇒ σ_ext = σ_sca,所以它与 ∫σ_2D dφ 是**同一物理量的两条不同路径**:")
+print("     定理只用**一个角**的幅度,判据 E/S 要用**全部角**的积分。一致才非平凡。")
+
+_FWD = forward_direction(0.0)
+report("T1  Mie 侧 σ_ext vs (4/k)Σ|C_n|²",
+       abs(extinction_width(K, mie_far_field_amplitude(K, RADIUS, _FWD)) - sigma_ref) / sigma_ref,
+       1e-12, note="与闭式共享 C_n ⇒ 代数一致性检查,不是独立证据")
+report("T2  电流侧 σ_ext vs 闭式(N=640)",
+       abs(extinction_width(K, far_field_amplitude_from_current(K, geom, J, _FWD)) - sigma_ref)
+       / sigma_ref,
+       5e-3, note="f_J 来自 MoM 电流 ⇒ 这一条才是真独立证据")
+
+# T3:θi 无关性(σ_ext 是散射体的性质,不该随入射角变)
+_ext_0 = extinction_width(K, far_field_amplitude_from_current(K, geom, J, _FWD))
+_ext_thi = extinction_width(K, far_field_amplitude_from_current(K, geom, _J7, forward_direction(_THI7)))
+report("T3  θi=0 与 θi=π/3 的 σ_ext 相对差", abs(_ext_0 - _ext_thi) / sigma_ref, 1e-3,
+       note=f"{_ext_0:.10f} vs {_ext_thi:.10f}")
+
+# T4:方向鉴别力(打印出来,供 K9 对照)
+_ext_wrong = extinction_width(K, mie_far_field_amplitude(K, RADIUS, 0.0))
+print(f"  [info] T4 若把前向误写成 θi(=0):σ_ext = {_ext_wrong:.6f},而正确值 = {sigma_ref:.6f}"
+      f" —— 相对差 {abs(_ext_wrong - sigma_ref) / sigma_ref:.3f}")
+
+# ============================================================================
+print()
+print("=" * 84)
 print("判据 R --- f 就是 ρ→∞ 的极限(有限 ρ 场收敛到 f_J)")
 print("=" * 84)
 
@@ -452,6 +484,23 @@ must_fail("K8  f_J 丢因子 k 后 M6(ka=5)的度量",
           float(np.max(np.abs(_fJ5_nok[_m5] / _fM5[_m5] - 1.0))), 1e-2)
 print("        对照:同一个错误在 k=1 时是**恒等操作**(f_J/1 ≡ f_J),所以 M1 完全看不见")
 print("        —— 这正是必须补 M6(ka=5)的理由。")
+
+# K9/K10/K11 —— 光学定理(判据 T)的三个孪生反例
+_Gk = np.sqrt(2.0 / (np.pi * K)) * np.exp(1j * 0.25 * np.pi)
+
+# K9:用错方向(θi 而不是 θi+π)-> T1 必须红
+must_fail("K9  前向误写成 θi 时 T1 的度量",
+          abs(extinction_width(K, mie_far_field_amplitude(K, RADIUS, 0.0)) - sigma_ref) / sigma_ref,
+          1e-12)
+
+# K10:符号写反(+2π 而不是 −2π)-> 必须红
+_fM_fwd = mie_far_field_amplitude(K, RADIUS, _FWD)
+must_fail("K10 符号写反时 T1 的度量",
+          abs(2 * np.pi * np.real(_Gk * np.conj(_fM_fwd)) - sigma_ref) / sigma_ref, 1e-12)
+
+# K11:漏掉前置因子 G(用 f 而不是 f/G)-> 必须红
+must_fail("K11 漏掉 G 时 T1 的度量",
+          abs(-(4.0 / K) * np.real(_fM_fwd) - sigma_ref) / sigma_ref, 1e-12)
 
 # K3:把前置因子 √(2/(πk))e^{jπ/4} 拿掉 -> E1 必须红
 #     |1/G|² = πk/2,所以拿掉后能量积分为 σ·(πk/2) ≠ σ。

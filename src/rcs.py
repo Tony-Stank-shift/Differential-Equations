@@ -126,16 +126,41 @@ jⁿC_n,E1 仍然全绿(这正是本模块自认最重要的那件事)。
 真正独立的是 **E2**(f_J 来自 MoM 电流,不共享 C_n)与 **S**(真实空间能流积分)。
 
 ============================================================================
-待办 D20:二维光学定理的归一化尚未锁定
+D20:二维光学定理(已锁定,2026-10-12)
 ============================================================================
-本模块**不提供**消光宽度/光学定理。原因见 DECISIONS D20:
-已实测的恒等式是
+**前向/影子方向 = `θ_i + π`**,不是 `θ_i`。
+⚠️ 这是本约定下的必然结果,别凭直觉写:入射 `u_inc = e^{+jk(x cosθ_i + y sinθ_i)}`
+配合 `e^{+jωt}`,波的传播方向是 `−(cosθ_i, sinθ_i)`(相位沿该方向递减),所以
+θ_i = 0 时波朝 **−x** 传播,影子在 **φ = π** 一侧。实测:把前向写成 θ_i 会得到
+σ = 2.059(ka=1)而不是 5.913 —— 差得很明显,不是容差问题。用 ``forward_direction``。
 
-    Re(Σ_n C_n) = −Σ_n |C_n|²        (8 个 ka 上 ≤ 1.8e-14)
+**定理**(PEC 无耗,σ_abs = 0):
+```
+σ_ext = σ_sca = −2π·Re[ G·conj( f(θ_i+π) ) ] = −(4/k)·Re[ Σ_n C_n ]
+              = −(4/k)·Re[ f(θ_i+π)/G ]
+```
+等价写法:定义 `A(φ) := Σ_n C_n e^{jn(φ−θ_i)}`(= `f(φ+π)/G`),则 `σ_ext = −(4/k)·Re[A(θ_i)]`
+—— 这就是标准光学定理的"前向幅度"形式,只是本约定的前向落在 `θ_i+π`。
 
-而"σ_ext = (系数)·Im f(前向)"的各种候选都对不上(且对不上得很一致,不是容差问题)。
-RCS 交付判据不依赖它,故登记为待办而不是硬凑一个判据。
-**不要在 tests/check_rcs.py 里加一条从不红的"光学定理"判据。**
+**推导(每一步都数值验过,不是手推)**:
+```
+① 精确(任意 ρ,无假设):P_sca + P_cross = 0      ← PEC 无耗,净径向通量为 0
+   实测 ρ=10a/30a/100a:`|P_sca+P_cross|/|P_sca|` = 2.97e-11 / 4.92e-12 / 3.39e-11
+   (径向 Poynting 分量取 S·ρ̂ = (1/(2ωμ))Re[−j E_z ∂_ρE_z*];ρ=1000a 那行是
+    我探针的有限差分步长失效,不是物理)
+② 远场两项: P_sca = k·σ_sca,  P_cross = 2πk·Re[G·conj(f(θ_i+π))]
+   实测 ka=5: P_sca = 23.3706 = k·4.6741 ✓;P_cross = −23.3706 与 2πk·Re[Gf*] 逐位吻合
+③ 由 ①② 消去:P_sca = −P_cross ⇒ kσ = −2πk·Re[Gf*(θ_i+π)] ⇒ 上面的定理
+```
+
+**背后的代数恒等式**:`Re(Σ_n C_n) = −Σ_n |C_n|²`。
+实测 9 个 ka(0.3 / 0.5 / 1 / 2 / 5 / 10 / **19.995** / 20 / 25,含假共振点)最大相对偏差
+**1.34e-15**。
+
+**独立性口径(重要,别夸大)**:本模块与 `tests/check_rcs.py` 的判据 T 里
+- 用 `f_M` 的那条与闭式 `(4/k)Σ|C_n|²` **共享 C_n**,是**代数一致性检查**;
+- 用 `f_J`(来自 MoM 电流)的那条才是**真独立证据**(实测到 MoM 离散误差量级);
+- 与判据 E/S 的关系:E 与 S 只约束 `∫σ dφ`,**定理 T 是单角量**——它给的是不同方向的约束。
 """
 from __future__ import annotations
 
@@ -148,10 +173,23 @@ except ImportError:  # src/ 在 sys.path 上
 
 __all__ = [
     "carrier",
+    "extinction_width",
     "far_field_amplitude_from_current",
+    "forward_direction",
     "mie_far_field_amplitude",
     "scattering_width",
 ]
+
+
+def forward_direction(theta_i: float = 0.0) -> float:
+    """前向/影子方向 ``θ_i + π``(光学定理的取值角)。
+
+    ⚠️ 不是 `θ_i`。本约定下入射 `e^{+jk(x cosθ_i+y sinθ_i)}` 配合 `e^{+jωt}`
+    的传播方向是 `−(cosθ_i, sinθ_i)`,所以 θ_i=0 时波朝 **−x** 传播、影子在 φ=π。
+    实测把前向误写成 θ_i 会得到 σ = 2.059(ka=1)而不是 5.913。
+    """
+    theta_i = _as_real_scalar(theta_i, "theta_i")
+    return theta_i + np.pi
 
 
 def _as_real_array(x, name: str) -> np.ndarray:
@@ -360,3 +398,33 @@ def scattering_width(k: float, f_phi, amplitude: float = 1.0) -> np.ndarray:
     if np.any(~np.isfinite(f)):
         raise ValueError("f_phi 含非有限值(NaN/inf);上游求解或 Mie 截断可能已失效")
     return _require_finite(np.abs(f) ** 2 / (abs(amplitude) ** 2), "scattering_width")
+
+
+def extinction_width(k: float, f_forward, amplitude: float = 1.0) -> np.ndarray:
+    """二维消光宽度(光学定理)。
+
+        σ_ext = −2π·Re[ G·conj( f_forward/amplitude ) ] = −(4/k)·Re[ f_forward/(amplitude·G) ]
+
+    其中 ``f_forward`` 必须是在 **``forward_direction(theta_i)``** 处取的远场幅度
+    (即 φ = θ_i+π,影子方向),``f`` 必须是该入射幅度下的远场幅度(本函数按
+    ``amplitude`` 归一化,所以对幅度线性缩放不变)。
+
+    ⚠️ **PEC 无耗 ⇒ σ_ext = σ_sca**。所以这个函数与 ``scattering_width`` 的积分
+    给的是同一个物理量,只是路径完全不同:这里只用**一个角**的幅度值,
+    ``scattering_width`` 要用**全部角**的积分。两条路一致才是非平凡的。
+
+    ⚠️ 与 Mie 闭式 `(4/k)Σ|C_n|²` 比较时注意独立性:`f_M` 那条共享 `C_n`
+    (是代数一致性检查),`f_J`(MoM 电流)那条才是真独立证据。详见模块 docstring。
+
+    实测:ka=1 电流侧 6.04e-06、ka=5 3.21e-05(均为 MoM 离散误差量级);
+    与 θ_i 无关(θ_i = 0 / π/3 / −π/4 给出逐位相同的值)。
+    """
+    k = _as_real_scalar(k, "k", positive=True)
+    amplitude = _as_real_scalar(amplitude, "amplitude")
+    if amplitude == 0.0:
+        raise ValueError(f"amplitude 必须是非零有限数,收到 {amplitude!r}")
+    f = np.asarray(f_forward, dtype=complex)
+    if np.any(~np.isfinite(f)):
+        raise ValueError("f_forward 含非有限值(NaN/inf);上游求解或 Mie 截断可能已失效")
+    out = -(4.0 / k) * np.real(f / (amplitude * _amplitude_factor(k)))
+    return _require_finite(out, "extinction_width")
