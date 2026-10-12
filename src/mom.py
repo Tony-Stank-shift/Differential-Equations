@@ -52,7 +52,7 @@ auto 的实时选择)。详见 quad.py 模块 docstring 顶端的更正说明。
 注意:段长用**弦长** 2R sin(π/N) 而不是弧长 2πR/N,积分元 dl' 沿直线段。
 
 ============================================================================
-独立真值(D8:判据不得拿实现自身当基准)
+真值(D8:判据不得拿实现自身当基准)
 ============================================================================
 二维 PEC 圆柱的 TM 散射有 Mie 级数解析解。由
     E_z^inc = Σ_n j^n J_n(kρ) e^{jn(φ-θ_i)}
@@ -64,6 +64,25 @@ auto 的实时选择)。详见 quad.py 模块 docstring 顶端的更正说明。
 
 这正是本模块输出量的真值(mie_surface_current)。
 
+⚠️ **本模块的两条 Mie 路径不是两条独立证据**(2026-10-12 由第三方复核证实,
+复核证据:两条路径算出的散射幅度**逐系数相同**)。`mie_surface_current` 与
+`mie_scattered_field` 共享同一个比值 `-J_n(ka)/H_n⁽²⁾(ka)` —— 两者都从
+**同一个 Dirichlet 边界条件** `E_inc + E_sca = 0` 定系数,其中电流式只是对
+同一个总场取 ∂_ρ 再用 Wronskian 化简的结果。后果:
+
+    任何符号/系数错误在两条路径里**同向传播**,判据 B2 / C1 / F 会一起变绿,
+    它们之间**不会互相检查**。
+
+所以它们的正确用法是"同一构造的两种写法,构成**一致性检查**"(能查出相位、
+归一化、级数截断、广播形状这类实现错误),**不是**独立真值。**不要**在论文里
+写"我们用了两条独立真值路径"。
+
+真正独立于 Mie 的第三方校验只有两类,本项目目标如下:
+    ① 与 MoM 解对比(判据 B2/C/D/F)—— MoM 侧确实独立,这是当前主力;
+    ② ⏳ **远场 RCS / 散射宽度与 Mie 解析 RCS 对比(任务 1.4)**,以及能量守恒
+       (光学定理)—— 这一类**目前尚未实现**,是 D8 纪律下**当前唯一的缺口**。
+       1.4 完成前,不要声称本项目已有"两条独立真值路径"。
+
 ============================================================================
 已知限制 —— EFIE 假共振(不是本实现的 bug,是 EFIE 本身的缺陷)
 ============================================================================
@@ -71,7 +90,7 @@ TM 圆柱的 EFIE 在 J_n(ka) = 0 处有**假共振(spurious interior resonance)
 此时某个模态的 J_n(ka) 趋近于零,离散矩阵的条件数在该点出现**孤立尖峰**
 (不是随 ka 平滑增长的趋势),共振点附近的电流误差被放大一个量级。
 
-实测(半径 1,quad_order 用默认 64,N = min(1600, max(64, 40·ka)) ——
+实测(半径 1,quad_order 用默认 16,N = min(1600, max(64, 40·ka)) ——
 **N 随 ka 变,这一点很关键,见下面 ⚠️**):
 
     ka       N      cond₂(Z)     说明
@@ -218,6 +237,9 @@ def assemble_impedance(k: float, geom: dict, quad_order: int = DEFAULT_QUAD_ORDE
 
     非对角元用 quad_order 点 Gauss-Legendre:被积函数在段 n 上是光滑的
     (段是直线,场点 r_m 不在段 n 上,故 R 有正下确界),高阶求积即可。
+    ⚠️ 但"高阶"是有限度的:实测 Q >= 12 已完全饱和,Q 再大结果一位不变,
+    默认 16 是留 4/3 倍余量的选择(饱和表见 quad.DEFAULT_QUAD_ORDER)。
+    装配成本是 Theta(N^2 * Q),故提阶只买时间不买精度。
     对角元(m = n)被积函数在 t = 0 处对数奇异,交给 quad.self_coupling_integral
     (主路径为 Struve 闭式,O(1) 全域有效)。
 
@@ -356,7 +378,7 @@ def total_field_residual(k: float, geom: dict, J: np.ndarray,
 
 
 # ============================================================================
-# Mie 级数独立真值
+# Mie 级数真值(注意:与本模块另一条 Mie 路径**不独立**,见模块 docstring)
 # ============================================================================
 
 def mie_surface_current(k: float, radius: float, phi, theta_i: float = 0.0,
@@ -377,6 +399,16 @@ def mie_surface_current(k: float, radius: float, phi, theta_i: float = 0.0,
 
     即优于 1e-12 只到 ka ≈ 10。本项目判据用到 ka ≤ 20,此时 3.4e-10 远小于
     离散误差(~1e-4 量级),故不影响结论。phi 可为标量或数组。
+
+    ⚠️ 它**不是**独立于 ``mie_scattered_field`` 的第二条证据(两者共享同一个
+    ``-J_n(ka)/H_n⁽²⁾(ka)`` 比值,逐系数相同),详见模块 docstring 顶部。
+
+    ⚠️ 已知限制(稳健性缺口,不是当前 bug):``n_terms`` 若被放大到远超默认,
+    ``(1j**ns)/hankel2(ns, ka)`` 会先溢出再相除而得到 NaN。实测 ka = 5(默认
+    22 项):2x = 44、5x = 110 仍然有限,20x = 440 全变 NaN(并触发
+    RuntimeWarning: invalid value encountered in divide)。默认截断本身很安全
+    —— 复核实测 ka = 2000 仍给出有限值。根治办法是改用递推直接算比值
+    ``R_n = 2j / (π ka W_n)``,避免穷举大 n 的 ``1j**n`` 与 ``hankel2(n, ka)``。
     """
     from scipy.special import hankel2
 
@@ -401,9 +433,15 @@ def mie_scattered_field(k: float, radius: float, rho, phi, theta_i: float = 0.0,
 
         E_z^sca(ρ,φ) = -Σ_n j^n [J_n(ka)/H_n⁽²⁾(ka)] H_n⁽²⁾(kρ) e^{jn(φ-θ_i)}
 
-    与 mie_surface_current 是两条独立路径(一个来自 ∂_ρ 边界条件,一个来自散射场
-    展开本身),用于交叉校验:由 MoM 解重建的远场应与本函数同号同量级。
+    ⚠️ 它**不是**独立于 ``mie_surface_current`` 的第二条证据:两者都从同一个
+    Dirichlet 边界条件定系数,共享同一个 ``-J_n(ka)/H_n⁽²⁾(ka)`` 比值。
+    因此本函数与 ``mie_surface_current`` 之间的一致性是**一致性检查**,
+    不是互相独立的真值 —— 详见模块 docstring 顶部的说明。它与 **MoM 解**
+    (由 ``scattered_field_on_target`` 重建的场)之间的比较才有独立性。
     rho 与 phi 支持广播。
+
+    ⚠️ ``n_terms`` 被放大到远超默认时同样会遇到 NaN 溢出,机制与缓解办法见
+    ``mie_surface_current`` 的"已知限制"。
     """
     from scipy.special import hankel2, jv
 

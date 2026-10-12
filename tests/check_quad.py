@@ -43,6 +43,7 @@ from quad import (  # noqa: E402
     C0,
     C1,
     DEFAULT_QUAD_ORDER,
+    DEFAULT_REGULAR_ORDER,
     analytic_part_integral,
     closed_self_integral,
     direct_gauss,
@@ -449,12 +450,12 @@ if HAVE_MPMATH:
     print("         (备用路径 = analytic_part_integral + GL(regular_part))")
     worst_f_ok = 0.0
     for k, a in [(1.0, 0.05), (1.0, 0.1), (1.0, 0.3), (2.0, 0.25), (1.0, 0.5)]:
-        nd, wt = gauss_legendre(DEFAULT_QUAD_ORDER)
+        nd, wt = gauss_legendre(DEFAULT_REGULAR_ORDER)
         via = analytic_part_integral(k, a) + a * complex(np.sum(wt * regular_part(k, a * nd)))
         ref = mp_self_coupling(k, a)
         e = rel_err(via, ref)
         worst_f_ok = max(worst_f_ok, e)
-        print(f"         ka={k * a:<6.3g} order=64 rel_err={e:.3e}")
+        print(f"         ka={k * a:<6.3g} order={DEFAULT_REGULAR_ORDER} rel_err={e:.3e}")
     report("备用路径在 ka <= 0.5 上(有断言)", worst_f_ok, TOL_A)
 
     print("         已知劣化(不设门,只如实记录 —— docstring 已写明适用范围):")

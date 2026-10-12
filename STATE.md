@@ -1,7 +1,7 @@
 # STATE — 当前进度
 
 > 每次小项完成后更新。上下文压缩或中断后,靠本文件无损接上。
-> 最后更新:2026-10-12(P0 口径对齐:hash 刷新到最新提交 + 自耦合实际路径更正)
+> 最后更新:2026-10-12(两件:①P0 口径对齐 ②第 7 轮第三方复核 5 项修入 —— 含两个求积默认值拆分)
 >
 > **本文件记录的代码快照:commit `5712d49`** —— 下表中每个数字都对应这个 commit。
 > 论文正文引用任何数字时请标注此 hash,否则 D8「判据必须用独立真值」在版本控制
@@ -60,7 +60,7 @@
 ## 已落盘
 
 - `proj/src/green.py` —— `EULER_GAMMA` / `SMALL_THRESHOLD=0.5` / `hankel0_2_small` / `hankel0_2` / `green_2d` / `log_singular_part`
-- `proj/src/quad.py` —— **auto 下实际路径** `series_self_integral`(级数逐项解析);**`k*a > 0.5` 的兜底** `closed_self_integral` + `hankel0_antiderivative`(Struve 闭式);**备用** `analytic_part_integral` / `regular_part` / `split_self_integral`;入口 `self_coupling_integral(method=auto|closed|series|split)`;**错误做法** `direct_gauss` / `naive_self_coupling`
+- `proj/src/quad.py` —— **auto 下实际路径** `series_self_integral`(级数逐项解析);**`k*a > 0.5` 的兜底** `closed_self_integral` + `hankel0_antiderivative`(Struve 闭式);**备用** `analytic_part_integral` / `regular_part` / `split_self_integral`;入口 `self_coupling_integral(method=auto|closed|series|split)`;**错误做法** `direct_gauss` / `naive_self_coupling`;两个求积默认值 `DEFAULT_QUAD_ORDER = 16`(装配,已饱和)/ `DEFAULT_REGULAR_ORDER = 64`(备用奇异路径,tol 1e-12 所依赖)
   ⚠️ 注意:这里的"主路径"字样在 `DECISIONS.md` 的 D10 里指的是**1.2 时点的决策**(分段 → 闭式),**不等于** `auto` 的实时选择。实际口径见 D10 补充更正与 `quad.py` 模块 docstring 顶端。
 - `proj/src/mom.py` —— `circle_geometry` / `assemble_impedance` / `assemble_excitation` / `solve_dense` / `surface_current` / `scattered_field_on_target` / `total_field_residual` / `mie_surface_current` / `mie_scattered_field`
 - `proj/tests/check_green.py` —— 判据 A(mpmath 60dps)+ B(scipy)+ 拼接缩放 + 余项门槛表 + 守卫测试
@@ -79,7 +79,7 @@
 | A2 | `max|Z − Zᵀ|` | **`2.315e-15`** |
 | A4 | `|Z_00| / |Z_0,对径|` | `10.050` |
 | B1 | 相对残差 `‖ZJ−V‖/‖V‖` | **`5.490e-16`** |
-| B2 | Mie 真值代回 `‖Z·Jmie−V‖/‖V‖` | **`1.707e-04`** |
+| B2 | Mie 真值代回 `‖Z·Jmie−V‖/‖V‖` | **`1.707e-04`**(**离散化误差本身的量度**,`B2/C1 ≈ 0.869` 随 N 恒定,不是精度余量) |
 | C1 | ka=5, N=400 电流相对误差 vs Mie | **`1.9639e-04`**(tol 5e-4) |
 | C2 | ka=1, N=200 电流相对误差 | **`8.7189e-05`** |
 | C3 | 逐点最大误差 / `max|Jmie|` | `1.8415e-04` |
@@ -115,6 +115,7 @@
 | 4 | 复检第 3 轮整改 | needs_revision → 已修 | P0/P1/P3/P4/P5 全到位,但**又抓出 6 项**(最重的一条是我把假共振的最坏点写错了) |
 | 5 | 复检第 4 轮整改 | needs_revision → 已修 | 抓出 2 条 [high]:①`mom.py` 有一段**漏删的旧文**;②**我把复核员的错误结论当既成事实写进了三个文件** |
 | 6 | 复检第 5 轮整改 | needs_revision → 已修 | 两条 [high] 的**数值部分独立重算 8/8 + 6/6 逐点吻合**,整改到位;但还剩**改一处漏一处**:`DECISIONS.md` 的小标题虽已改,`STATE.md` 与 `src/mom.py` 的**抬升倍数**口径仍与自家表格不符;判据 J 的"3 个默认精度"是**归因错误**(输入是 double 舍入,不是字面量精度不足);计数 16 应为 **15** |
+| 7 | 1.1→1.3 全链(新独立上下文,默认找茬) | 通过(5 项已修入) | ① **Mie 两条路径不独立** — 共享同一比值、逐系数相同,只能算一致性检查(我此前只标为"待核实",这条由它证实)② `quad_order` 在装配上 **Q≥12 已饱和**,默认 64 是纯浪费 ③ `B2/C1 ≈ 0.869` 恒定 ⇒ B2 不是精度余量 ④ `green.py` 守卫 5.0 与"只对 ≤0.5 负责"的声明矛盾 ⑤ `mie_*` 大截断溢出成 NaN。**它报的"quad.py:231 漏 γ"经我复核是误读**(那是中间步骤,最终式两侧都有 γ) |
 
 **第 3 轮(0→1.3 全链)的复核方式**:五条**互不相干**的独立路线 —— mpmath 60dps 级数、`mp.quad` 高精度积分、`solve_ivp` ODE 积分、解析导数边界条件、Huygens 面积分往返闭合。**五路全部与代码一致,最差偏差 `6.45e-16`。未找到任何反例。**
 
@@ -147,7 +148,8 @@
 
 - Python:`python`(3.12.10);numpy 2.5.1 / scipy 1.18.1 / matplotlib 3.11.1 / torch 2.13.0+cpu / **mpmath 1.3.0**(仅测试用,已列入 requirements)
 - 机器:Intel Core Ultra 9 290HX Plus,24 逻辑核,**16 GB RAM(实测 15.38 GB)**,无 GPU;实测复数 LU 有效算力约 39–63 GFLOPs
-- **内存是唯一硬瓶颈**:安全算例上限 N ≤ 5000;勉强 N = 8000–10000(须关闭浏览器等)
+- **瓶颈不是内存,是时间**(0→1.3 复核实测修正)：求解 `np.linalg.solve` 按 LAPACK 语义会**复制一份 Z**，故求解峰值 ≈ `32N²` B ⇒ 实用预算 ~11–12 GB 下内存墙约在 **N ≈ 12000–15000**（原写"安全上限 N ≤ 5000"是保守口径，保留为**推荐**上限）。
+- **时间**：装配 `T = Θ(N²·Q)`（实测约 `290 ns/(N²Q)`）；实测 `assemble_impedance`：N=1000/Q=16 → `4.4 s`、N=2000/Q=64 → **`77.5 s`**。⇒ N=5000/Q=64 推算约 `464 s`（≈8 min）、N=10000 推算约 `31 min`。**"太慢"先于"装不下"到来**，这也是把 `DEFAULT_QUAD_ORDER` 从 64 降到 16 的直接理由（Q 在真实几何下 12 即饱和，见上一条）。
 - 沙箱在 workspace-write 下**禁止 pwsh 子进程出站联网**(curl 全部返回 `000`);机器本身有网,Google/HF/Scholar 需梯子
 - ⚠️ 中文路径在子进程 stderr 中会被 GBK 破坏(Python 自身运行不受影响)
 - 本机 PowerShell 为 5.1(`Get-Content` 无 `-AsByteStream`;`Get-CimInstance` 被沙箱拒绝;**不支持 bash heredoc**,commit message 需走临时文件 + `git commit -F`)
@@ -155,7 +157,9 @@
 
 ## 已知的薄裕度判据(不是错,但换环境易翻红)
 
-- `check_quad.py` 判据 F(备用路径 ka ≤ 0.5 到 1e-12):最差 `8.576e-13` @ tol `1e-12` —— **裕度仅 1.17×**
+- `check_quad.py` 判据 F(备用路径 ka ≤ 0.5 到 1e-12):最差 `8.576e-13` @ tol `1e-12` —— **裕度仅 1.17×**。⚠️ **它依赖 `DEFAULT_REGULAR_ORDER = 64`**：把这条路径的求积阶降到 12 或更低会直接翻红（实测 order=16 → `ka=0.5` 得 `8.058e-10`，超 tol 800 倍）。原因见下条。
+- ⚠️ **两个求积默认值不可互换**（2026-10-12 由回归实测分开）：非对角元装配的求积在 **Q ≥ 12 完全饱和**（提阶无益），而备用奇异路径的求积**必须 ≥ 64** 才够 1e-12（其被积函数余项 `R2 − 1 = O(t⁴ ln|t|)` 的分支点在**区间内部** t=0，GL 只能代数收敛 n⁻⁵）。故 `DEFAULT_QUAD_ORDER = 16`（装配）与 `DEFAULT_REGULAR_ORDER = 64`（备用奇异路径）是两个常量。
+- ⚠️ 奇数阶装配存在丢点隐患但**已实测无害**：`assemble_impedance` 接受奇数 `quad_order`，而奇数阶 GL 含 t=0 节点，场点落在段上时该节点被 `vals[~off] = 0.0` 丢弃（自耦合贡献少一点）。实测 ka=5、N=400 下 Q = 16/31/32/63/64 给出**逐位相同**的相对误差 `1.963859e-04` ⇒ 影响低于测得分辨力。**换几何前不要把奇数阶当等价选项**。
 - `check_quad.py` 判据 E(`dI/da = 2H₀⁽²⁾(ka)` 中心差分 h=1e-6):`9.607e-11` @ tol `1e-8` —— 弱判据,对闭式路径不构成实质压力
 - `check_mom.py` 判据 G2 的共振邻域:`ka=19.995` 实测 `1.823e-02` @ 上界 tol `5e-2` —— 裕度 `2.7×`。**这是设计上的已知劣化区,不是缺陷**(EFIE 近零模,见 D13);它被单列出来,正是为了不让它污染 G1 的 `2e-3`
 - ⚠️ **不要再用"ka=20 是共振最坏点、裕度 1.36×"这个说法** —— 它错了。`J₁₅` 的零点在 **ka\* = 19.994430629816385**,最坏点在 **19.995**(离零点最近),误差 `1.823e-02` 是 ka=20 的 `1.475e-03` 的 **12 倍**。原判据只采到 20.0,恰好错过最坏点。详见 D13 与 `mom.py` docstring
@@ -166,4 +170,4 @@
 - 二维 TM 的远场(ρ → ∞):`E_z^sca(φ) ≈ (j/4)·√(2/(π kρ))·e^{−j(kρ−π/4)}·(由 J 求的散射幅度)`,或直接用 `scattered_field_on_target` 在远场求值
 - 更稳的做法:2D 散射宽度 `σ_2D(φ) = lim_{ρ→∞} 2πρ |E_sca|²/|E_inc|²`,与 Mie 级数同量比较
 - **1.3 的接口已备好**:`scattered_field_on_target(k, geom, J, pts)` 就是这个对比要用的重建函数
-- 判据必须用独立真值(纪律 D8):Mie 级数天然满足;两条独立真值路径 `mie_surface_current` / `mie_scattered_field` 已在 `mom.py` 里
+- 判据必须用独立真值(纪律 D8):Mie 级数天然满足。⚠️ **但 `mom.py` 的两个 Mie 输出量彼此不独立** —— `mie_surface_current` / `mie_scattered_field` 共享同一个比值 `−J_n(ka)/H_n⁽²⁾(ka)`(2026-10-12 复核证实逐系数相同),只能算**一致性检查**。**真正独立的只有"MoM 重建场 vs Mie 解析场"这一条**。缺口(`mom.py` 模块 docstring 顶部与 D8 已记):**能量守恒 / 光学定理尚未实现** —— 由 1.4 的远场 RCS 对比承担，1.4 完成前不要声称"已有两条独立真值路径"。
