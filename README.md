@@ -80,7 +80,29 @@ python run_all.py
 python tests/check_green.py      # 1.1 格林函数
 python tests/check_quad.py       # 1.2 奇异积分
 python tests/check_mom.py        # 1.3 矩量法(含黄金值 J 与鉴别力 K 判据)
+python tests/check_rcs.py        # 1.4 远场 RCS 对 Mie 解析解(含判据 A/M/E/S/R/C 与鉴别力 K)
 ```
+
+四套共 140 项判据,全部 `exit 0`。**每个判据都必须能变红**(纪律 D14):`check_*.py` 里的
+`K` 组就是"故意做错,必须变红"的孪生反例 —— 一个无论对错都 PASS 的判据是装饰。
+
+### 1.4 的归一化基准(引用 RCS 数字前必读)
+
+```
+f(φ)    := lim_{ρ→∞} √ρ·e^{+jkρ}·E_z^sca(ρ,φ)
+f_M(φ)   = √(2/(πk))·e^{+jπ/4}·Σ_n (−1)ⁿ·C_n·e^{jn(φ−θ_i)},   C_n = −J_n(ka)/H_n⁽²⁾(ka)
+σ_2D(φ)  = |f(φ)|²/|A|²        ← 每弧度约定:∫σ_2D dφ = 总散射宽度 = (4/k)Σ|C_n|²
+```
+
+⚠️ **角核是 `(−1)ⁿC_n`**,不是 `C_n`(差 180° 旋转),也不是 `jⁿC_n`(差 90°)。那个 `jⁿ`
+藏在 `H_n⁽²⁾(kρ)` 的渐近相位里,而**不在** Mie 系数里 —— 四步推导见 `DECISIONS.md` 的 D19
+与 `src/rcs.py` 模块 docstring 顶端。**载波前置因子 `√(2/(πk))e^{+jπ/4}` 不可省**。
+
+⚠️ 文献里的"回波宽度"约定 `σ_echo = 2πρ|E_s|²/|E_i|²` 比本项目的 `σ_2D` **大 2π**;
+用它时总宽度必须写 `(1/2π)∫σ_echo dφ`。两个约定不能混写(判据 S 守这条)。
+
+⚠️ "N=320 误差 < 2%" 的真实含义是 **`N/ka`(每波长段数)≳ 20**,误差 ~ `(ka/N)²`;
+只在 N 上讲精度是错的(ka=20/N=320 会掉到 2.34e-02)。
 
 ### 自耦合积分走哪条路(容易记反,务必看这条)
 
@@ -108,14 +130,20 @@ proj/
 │    green.py         格林函数(含 R->0 渐近分支)
 │    quad.py          奇异积分处理
 │    mom.py           矩量法:填充 Z、V
-│    rcs.py           散射宽度与 Mie 级数解析解
-│    cluster.py       二叉树聚类
-│    aca.py           部分主元 ACA
-│    hmatrix.py       H 矩阵组装与存储
-│    nnrank.py        神经网络秩预测
-│    solve.py         线性求解
+│    rcs.py           远场幅度与散射宽度(含 Mie 级数远场,Mie 角核见 D19)
+│    cluster.py       二叉树聚类            [路线图 3.x,尚未实现]
+│    aca.py           部分主元 ACA          [路线图 3.x,尚未实现]
+│    hmatrix.py       H 矩阵组装与存储      [路线图 3.x,尚未实现]
+│    nnrank.py        神经网络秩预测        [路线图 4.x,尚未实现]
+│    solve.py         线性求解              [路线图 4.x,尚未实现]
+├─ tests/
+│    check_green.py   1.1 自检
+│    check_quad.py    1.2 自检
+│    check_mom.py     1.3 自检
+│    check_rcs.py     1.4 自检
 ├─ experiments/
 │    registry.md      实验登记簿(配置 -> 脚本 -> 输出 -> 图)
+│    exp0*.py         路线图 2.x-4.x 的实验模块,尚未实现
 ├─ results/           数值结果
 └─ figures/           图(dpi >= 300)
 ```
