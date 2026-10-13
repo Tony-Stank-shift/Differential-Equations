@@ -211,8 +211,17 @@ def hankel0_antiderivative(z):
     精度随 z 增长按 ``sqrt(z) * eps`` 退化(两项相消):z = 100 -> 1.7e-15,
     z = 1e3 -> 7.3e-15,z = 1e4 -> 2.4e-14。z 再大时如需严格精度,请用 mpmath
     高精度路径,不要在本函数里加"兜底级数"。
+
+    ⚠️ ``z < 0`` 现在抛 ``ValueError``(2026-10-13 第 11 轮复核):此前正值与负值
+    走同一个分支以外的兜底,``hankel0_antiderivative(-5.0)`` **静默返回 0j** ——
+    一个"看起来像 F(0)"的值。z = 0 仍精确返回 0。
     """
     z_arr = np.asarray(z, dtype=float)
+    if np.any(z_arr < 0.0):
+        raise ValueError(
+            f"hankel0_antiderivative 只对 z >= 0 有定义(F 是 0 到 z 的积分),"
+            f"收到 {z!r}。此前负值会被静默当成 0。"
+        )
     scalar = z_arr.ndim == 0
     zz = np.atleast_1d(z_arr)
     out = np.empty(zz.shape, dtype=complex)
@@ -256,7 +265,13 @@ def closed_self_integral(k, half_len):
     k = float(k)
     if not k > 0.0:
         raise ValueError(f"k 必须为正,收到 {k!r}")
-    return (2.0 / k) * hankel0_antiderivative(k * np.asarray(half_len, dtype=float))
+    a_arr = np.asarray(half_len, dtype=float)
+    if np.any(a_arr <= 0.0):
+        # 2026-10-13 第 11 轮复核实测:此前不校验 half_len,closed_self_integral(1.0,-0.5)
+        # **静默返回 0j** —— 负/零段长会把整个对角元静默置零(Z 全错而不报错)。
+        # 统一入口 self_coupling_integral 一直是抛 ValueError 的,这里与它对齐。
+        raise ValueError(f"half_len 必须为正,收到 {half_len!r}")
+    return (2.0 / k) * hankel0_antiderivative(k * a_arr)
 
 
 # ======================================================================
@@ -408,8 +423,22 @@ def split_self_integral(
 
     历史上是 1.2 的主路径,现在降级为**备用**(主路径是闭式,见
     ``closed_self_integral``)。保留原因:它演示了"把奇点圈进解析段、外段交给
-    数值求积"这个模式,1.3 的近奇异积分要沿用。默认 ``order=64`` 在
-    ``k*a > 50`` 后精度越线(ka = 1000 时相对误差 5.5),**它同样有适用范围**。
+    数值求积"这个模式,1.3 的近奇异积分要沿用。
+
+    ⚠️ ``order`` 的**实际默认值是 ``DEFAULT_QUAD_ORDER`` = 16,不是 64**
+    (本 docstring 长期误写为"默认 order=64",2026-10-13 第 11 轮复核抓出)。
+    这个默认值**精度很有限**,实测相对误差(k*a = 5 / 10 / 25 / 50 / 100):
+
+        order= 8   7.66e-06  2.22e-04  1.73e-01  4.56e+00  6.18e+00
+        order=16   1.09e-10  7.74e-08  4.24e-05  3.23e-02  3.19e+00   <-- 默认
+        order=32   2.97e-15  1.71e-14  2.33e-09  7.63e-07  1.07e-03
+        order=64   5.66e-15  3.54e-15  1.86e-14  1.00e-12  2.82e-09
+        order=128  2.42e-14  2.29e-14  1.08e-13  1.88e-13  3.27e-13
+
+    ⇒ **默认值(16)远达不到本模块 1e-12 的标准**;要用这条路径请显式传
+    ``order=64`` 以上。``tests/check_quad.py`` 判据 C 现在**把默认值本身也纳入
+    断言**(此前它用 ``vals[1:]`` 把 vals[0] 排除在外,等于默认值零覆盖:
+    把默认从 16 改成 8 后 check_quad + check_mom 仍然全绿)。
     """
     k = float(k)
     a = float(half_len)
@@ -485,7 +514,19 @@ def self_coupling_integral(k, half_len, method: str = "auto") -> complex:
 # 错误做法(仅用于自检里量化危害,不要在生产路径调用)
 # ======================================================================
 def direct_gauss(k, half_len, order: int = DEFAULT_QUAD_ORDER) -> complex:
-    """**错误做法**:对带奇异性的核直接上 Gauss-Legendre(不拆奇点)。"""
+    """**错误做法**:对带奇异性的核直接上 Gauss-Legendre(不拆奇点)。
+
+    ⚠️ 它的失效方式是**收敛太慢**,不是"不收敛"(2026-10-13 第 11 轮复核更正 ——
+    此前 STATE/文档写"提高阶数无效、永远啃不动",那是错的)。实测误差 ∝ 1/order,
+    是代数收敛:
+
+        k*a=0.1  Q=16 1.757e-02  Q=64 4.491e-03  Q=256 1.129e-03  Q=1024 2.827e-04
+        k*a=1    Q=16 3.760e-02  Q=64 9.606e-03  Q=256 2.415e-03  Q=1024 6.047e-04
+        k*a=1    Q=8192 -> 7.562e-05
+
+    要压到 1e-12 需要约 **1e11** 个点 ⇒ **作为生产路径不可用**这个结论仍然成立,
+    但论据是"代数收敛 O(1/n)、点数不现实",不是"提高阶数无效"。
+    """
     nodes, weights = gauss_legendre(order)
     a = float(half_len)
     t = a * nodes

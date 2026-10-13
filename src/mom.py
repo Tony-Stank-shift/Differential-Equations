@@ -243,8 +243,13 @@ def assemble_impedance(k: float, geom: dict, quad_order: int = DEFAULT_QUAD_ORDE
     ⚠️ 但"高阶"是有限度的:实测 Q >= 12 已完全饱和,Q 再大结果一位不变,
     默认 16 是留 4/3 倍余量的选择(饱和表见 quad.DEFAULT_QUAD_ORDER)。
     装配成本是 Theta(N^2 * Q),故提阶只买时间不买精度。
-    对角元(m = n)被积函数在 t = 0 处对数奇异,交给 quad.self_coupling_integral
-    (主路径为 Struve 闭式,O(1) 全域有效)。
+    对角元(m = n)被积函数在 t = 0 处对数奇异,交给 quad.self_coupling_integral。
+    ⚠️ 那里 ``method="auto"`` 的**实际选择是级数路径,不是闭式**:真实 MoM 网格下
+    段长取**弦长**,``k*a`` 恒为 1e-2 量级,低于 ``quad.SMALL_THRESHOLD``(0.5),
+    所以 auto 恒走 ``series_self_integral``。Struve 闭式是 ``k*a > 0.5`` 的兜底分支
+    —— 原先这里写"主路径为 Struve 闭式,O(1) 全域有效"是**旧的错误口径**
+    (2026-10-13 第 11 轮复核抓出,与 ``quad.py`` 的 D10 更正矛盾,是上一轮清理
+    只改了文件顶部、没改到这里留下的)。见 DECISIONS D10。
 
     逐行计算,避免一次分配 (N, N, Q, 2) 的中间数组。
     """
@@ -362,6 +367,21 @@ def total_field_residual(k: float, geom: dict, J: np.ndarray,
 
     点匹配只保证配点(段中点)上方程成立,节点处是否也接近零是插值质量的
     独立证据。返回 dict(points, total, max_abs, rms_abs, scale)。
+
+    ⚠️ **``quad_order`` 在这个函数里没有"饱和"一说**(2026-10-13 第 11 轮复核实测,
+    与 ``assemble_impedance`` 的"Q >= 12 完全饱和"**不是同一件事**,别把那条推广过来)。
+    原因:``on_nodes=True`` 时检验点取的是**多边形顶点**,而顶点恰好落在段的端点上
+    ⇒ 被积函数近奇异 ⇒ 求积退化成 **O(1/quad_order) 的代数收敛**,和 ``quad.direct_gauss``
+    同类。实测(ka=5 等价算例,E1 = 节点残差(J_mom)/节点残差(J_mie)):
+
+        Q =  12   16     24     32     48     64     96     128    192    256
+        E1  1.2554 1.0084 0.8024 0.7239 0.6654 0.6444 0.6292 0.6238 0.6200 0.6186
+
+    ⇒ **报告 E1/E2 这类量时必须写明 quad_order**,否则数字没有含义。默认值
+    (``DEFAULT_QUAD_ORDER`` = 16)给出 E1 ≈ 1.008(与"精确解地板"同量级),
+    文档里长期引用的 0.644420 是 Q=64 的值、且**在 Q=64 也没收敛**(仍在下降)。
+    定性结论不受影响:E1 在 Q∈[16,256] 一直落在 0.62–1.26,即"MoM 残差与精确解
+    插进同一个离散方程的残差同量级" ⇒ 绝对阈值无意义、必须拿精确解当尺子。
     """
     if on_nodes:
         pts = geom["edges"][:-1]                   # N 个折线顶点(与配点交错)

@@ -45,6 +45,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from mom import (  # noqa: E402
+    assemble_excitation,
     assemble_impedance,
     circle_geometry,
     mie_scattered_field,
@@ -52,6 +53,7 @@ from mom import (  # noqa: E402
     surface_current,
     total_field_residual,
 )
+from quad import DEFAULT_QUAD_ORDER  # noqa: E402
 
 failures: list[str] = []
 
@@ -163,10 +165,17 @@ print("判据 E —— 节点边界条件残差(含多边形几何地板,判据�
 print("=" * 82)
 print("  说明:节点残差有两个来源 —— (a) 解本身的电流误差,(b) 多边形几何 +")
 print("        点匹配的固有地板。把**精确** Mie 电流代进同一个残差就量出了 (b)。")
-print("        实测(k=1, a=5, N=400):resid(J_mom) = 1.652431e-04,")
-print("                               resid(J_mie) = 2.564214e-04")
-print("        —— 精确解反而**更差 1.55 倍**。所以绝对阈值毫无意义(旧判据用 2e-3,")
-print("        属于靠运气过)。现改为拿精确解当尺子的相对判据,它才真有鉴别力。")
+print("  ⚠️ 这两个数**依赖 total_field_residual 的 quad_order**,必须连着报")
+print("     (2026-10-13 第 11 轮复核):on_nodes=True 取的是多边形顶点,而顶点正好")
+print("     落在段端点上 ⇒ 被积核近奇异 ⇒ 求积退化成 O(1/Q) 代数收敛,**在 Q=16 处")
+print("     远未饱和**。实测(k=1, a=5, N=400;E1 = resid(J_mom)/resid(J_mie)):")
+print("         Q  =  12     16     24     32     48     64     96    128    256")
+print("         E1    1.2554 1.0084 0.8024 0.7239 0.6654 0.6444 0.6292 0.6238 0.6186")
+print("     下面是**默认(Q=16)**的结果,与表里第二列一致。文档长期引用的")
+print("     resid = 1.652431e-04 / 2.564214e-04、E1 = 0.644420 是 **Q=64** 的值,")
+print("     而且 Q=64 也没收敛(仍在下降)。定性结论不变:E1 始终 O(1),即 MoM 残差")
+print("     与'精确解插进同一个离散方程的残差'同量级 ⇒ 绝对阈值毫无意义(旧判据用")
+print("     2e-3,属于靠运气过),必须拿精确解当尺子。")
 
 rt_mom = total_field_residual(K, geomb, J)
 rt_mie = total_field_residual(K, geomb, Jm)
@@ -177,6 +186,61 @@ report("E1 节点残差(J_mom) / 节点残差(J_mie)", res_mom / res_mie, 1.5,
        note=f"J_mom = {res_mom:.3e}, 精确解地板 = {res_mie:.3e}")
 report("E2 节点残差 / 配点电流误差", res_mom / err_b, 10.0,
        note="量级自查,非硬判据")
+
+# ---------------------------------------------------------------------------
+# E3–E5:参数与"锁定约定"的覆盖(2026-10-13 第 11 轮复核)
+#   复核员实测 —— 下面这些参数/约定**改坏之后 check_mom 仍然全 exit 0**:
+#     · assemble_impedance(quad_order=…) 的求积阶数(改成 no-op 也全绿)
+#     · amplitude=…(删掉 mie_surface_current 里的 `amplitude *` 因子也全绿)
+#     · 段长 = **弦长**(D6 锁定的约定,却没有任何判据钉住它;换成弧长也全绿)
+#   这是 D22/D23 的正面落实:"故障注入清单必须按类型齐全,含配置/参数维度"。
+# ---------------------------------------------------------------------------
+print("  --- E3–E5:参数与锁定约定的覆盖(第 11 轮复核补) ---")
+
+_Z4 = assemble_impedance(K, geom, quad_order=4)
+_Z16 = assemble_impedance(K, geom, quad_order=16)
+_Z64 = assemble_impedance(K, geom, quad_order=64)
+_e4 = float(np.linalg.norm(_Z4 - _Z64) / np.linalg.norm(_Z64))
+_e16 = float(np.linalg.norm(_Z16 - _Z64) / np.linalg.norm(_Z64))
+print(f"         Q=4 vs Q=64   rel-L2 = {_e4:.3e}   (quad_order 真的在起作用)")
+print(f"         Q=16 vs Q=64  rel-L2 = {_e16:.3e}   (默认 16 已饱和)")
+if _e4 > 1e-8:
+    print("  [PASS] E3a quad_order 不是 no-op")
+else:
+    print("  [FAIL] E3a quad_order 变成 no-op(改阶数不改变 Z)")
+    failures.append("E3a quad_order no-op")
+report("E3b 默认 Q=16 相对 Q=64 的 rel-L2", _e16, 1e-14,
+       note=f"实测 {_e16:.3e};DEFAULT_QUAD_ORDER = {DEFAULT_QUAD_ORDER}")
+if np.array_equal(assemble_impedance(K, geom), _Z16):
+    print(f"  [PASS] E3c 默认装配逐位等于 quad_order={DEFAULT_QUAD_ORDER}")
+else:
+    print("  [FAIL] E3c 默认装配 ≠ DEFAULT_QUAD_ORDER 那一阶 —— 签名默认值变了")
+    failures.append("E3c default quad_order pinned")
+
+_mie_base = mie_surface_current(K, RADIUS, geom["phi_mid"])
+for _A in (3.0, -2.0, 0.25):
+    _got = mie_surface_current(K, RADIUS, geom["phi_mid"], amplitude=_A)
+    _lerr = float(np.linalg.norm(_got - _A * _mie_base) / np.linalg.norm(_A * _mie_base))
+    report(f"E4a mie_surface_current 关于 amplitude={_A:g} 的线性性", _lerr, 1e-14,
+           note="删掉 `amplitude *` 因子时 amplitude=1 看不见,这条会红")
+_V1 = assemble_excitation(K, geom)
+_V3 = assemble_excitation(K, geom, amplitude=3.0)
+report("E4b assemble_excitation 关于 amplitude=3 的线性性",
+       float(np.linalg.norm(_V3 - 3.0 * _V1) / np.linalg.norm(3.0 * _V1)), 1e-14)
+
+_arc = 2.0 * np.pi * RADIUS / N
+_chord = 2.0 * RADIUS * np.sin(np.pi / N)
+_len = geom["length"]
+_d_chord = float(np.max(np.abs(_len - _chord)))
+_d_arc = float(np.max(np.abs(_len - _arc)))
+print(f"         弦长 = {_chord:.15e}   弧长 = {_arc:.15e}   比值 = {_chord / _arc:.15f}")
+print(f"         max|length − 弦长| = {_d_chord:.3e}    max|length − 弧长| = {_d_arc:.3e}")
+report("E5  段长 = 弦长 2R sin(π/N)(D6 锁定约定)", _d_chord, 1e-13)
+if _d_arc > 1e-9:
+    print("  [PASS] E5b 段长**不是**弧长 2πR/N(换成弧长会让 E5 红)")
+else:
+    print("  [FAIL] E5b 段长与弧长无法区分 —— 判据对弦/弧不敏感")
+    failures.append("E5b chord vs arc distinguishable")
 
 # ============================================================================
 print()

@@ -33,6 +33,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from green import (  # noqa: E402
+    SMALL_GUARD_THRESHOLD,
     SMALL_THRESHOLD,
     green_2d,
     hankel0_2,
@@ -258,6 +259,45 @@ if not clean:
 else:
     print(f"  [FAIL] 正当用法误告警: {clean}")
     failures.append("false alarm")
+
+# ======================================================= [6b] 守卫值本身
+print("\n[6b] 守卫值本身 —— 2026-10-13 第 11 轮复核指出此前**零判据覆盖**")
+print("      复核员实测:把 green.py 的守卫从 5.0 改回 0.5(即让第 7 轮那条")
+print("      '守卫值 5.0 / 声明的设计区间 0.5 矛盾'回到原状),")
+print("      check_green / check_quad / check_mom **三套仍然全绿** —— 修复可被静默回退。")
+print("      下面把它钉住:(0.5, 5] 不告警、> 5 告警。")
+
+
+def _warns_at(x) -> bool:
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        hankel0_2_small(x)
+        return any("hankel0_2_small" in str(c.message) for c in caught)
+
+
+_below = [0.6, 1.0, 3.0, 5.0]
+_above = [5.0 + 1e-9, 5.01, 10.0]
+_bad_below = [x for x in _below if _warns_at(x)]
+_missed_above = [x for x in _above if not _warns_at(x)]
+print(f"  [info] (0.5, 5] 内却告警的: {_bad_below if _bad_below else '无'}")
+print(f"  [info] > 5 却不告警的: {_missed_above if _missed_above else '无'}")
+if not _bad_below and not _missed_above:
+    print("  [PASS] 守卫线恰在 5.0(改小到 0.5 会让本判据变红)")
+else:
+    print("  [FAIL] 守卫线与 SMALL_GUARD_THRESHOLD 不符")
+    failures.append("guard threshold pinned")
+
+report("SMALL_GUARD_THRESHOLD 常量本身", abs(SMALL_GUARD_THRESHOLD - 5.0), 1e-15)
+
+with warnings.catch_warnings(record=True):
+    warnings.simplefilter("always")
+    try:
+        log_singular_part(1.0, -0.3)
+    except ValueError:
+        print("  [PASS] log_singular_part 拒绝负 kR(旧:静默返回 2+0.840j)")
+    else:
+        print("  [FAIL] log_singular_part 对负 kR 无反应")
+        failures.append("log_singular negative")
 
 print("\n" + "=" * 82)
 if failures:

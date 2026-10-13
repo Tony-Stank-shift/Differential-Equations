@@ -293,6 +293,12 @@ print("\n[6] 判据 C —— 分段路径(备用)的稳定性(ka = 5,改变外�
 if HAVE_MPMATH:
     k_c, a_c = 10.0, 0.5  # ka = 5,delta = 0.05,外段占绝大部分
     ref_c = mp_self_coupling(k_c, a_c)
+    # ⚠️ 先**不带 order** 调一次,即真正走到默认值。
+    #    2026-10-13 第 11 轮复核实测:原来下面的循环全部显式传 order,于是默认值
+    #    零覆盖 —— 把签名默认从 16 改成 8,check_quad + check_mom 仍然全绿。
+    e_default = rel_err(split_self_integral(k_c, a_c), ref_c)
+    print(f"         默认(不传 order;DEFAULT_QUAD_ORDER = {DEFAULT_QUAD_ORDER})"
+          f" rel_err = {e_default:.3e}")
     vals = []
     for order in (16, 32, 64, 128):
         e = rel_err(split_self_integral(k_c, a_c, order=order), ref_c)
@@ -306,6 +312,21 @@ if HAVE_MPMATH:
     else:
         print("  [FAIL] 分段结果依赖阶数")
         failures.append("segment stability")
+    # (a) 默认值必须真的等于 DEFAULT_QUAD_ORDER 那一阶 —— 这条把默认值钉住
+    if abs(e_default - vals[0]) < 1e-15:
+        print(f"  [PASS] 默认值 = order {DEFAULT_QUAD_ORDER} 的结果(钉住默认值)")
+    else:
+        print(f"  [FAIL] 默认值({e_default:.3e})≠ order 16 的结果({vals[0]:.3e})"
+              f" —— 签名默认值变了")
+        failures.append("split default pinned")
+    # (b) 默认值**达不到**本模块的 1e-12 标准 —— 这是已知事实,写进断言免得被
+    #     后人误以为"默认即可用";要正确性必须显式传 order>=64
+    if e_default > 1e-12:
+        print(f"  [PASS] 已知事实:默认 order={DEFAULT_QUAD_ORDER} 达不到 1e-12"
+              f"({e_default:.3e}) —— 用这条路径请显式传 order >= 64")
+    else:
+        print(f"  [FAIL] 默认 order 竟达到 1e-12({e_default:.3e})?与 docstring 矛盾")
+        failures.append("split default accuracy claim")
 else:
     report("分段稳定性", float("nan"), TOL_A)
 
@@ -494,6 +515,50 @@ if gate_g:
     print("  [PASS] 5 个 k × 3 个边界缩放 × 3 个 method = 45 次调用,无无谓 ValueError")
 else:
     failures.append("float boundary at a = 0.5/k")
+
+# ======================================================= [12] 静默出口守卫
+print("\n[12] 静默出口守卫(2026-10-13 第 11 轮复核补)")
+print("      复核员实测的两个'静默返回垃圾'出口:")
+print("        closed_self_integral(1.0, -0.5)   -> 0j        (负段长把对角元静默置零)")
+print("        hankel0_antiderivative(-5.0)       -> 0j        (负 z 被当成 F(0))")
+print("      而统一入口 self_coupling_integral(1.0, -0.5) 一直是抛 ValueError 的。")
+
+for _lbl, _fn, _args in (
+    ("closed_self_integral(1.0, -0.5)", closed_self_integral, (1.0, -0.5)),
+    ("closed_self_integral(1.0, 0.0)", closed_self_integral, (1.0, 0.0)),
+    ("closed_self_integral(1.0, [-0.5, 0.5])", closed_self_integral,
+     (1.0, np.array([-0.5, 0.5]))),
+    ("hankel0_antiderivative(-5.0)", hankel0_antiderivative, (-5.0,)),
+    ("hankel0_antiderivative([0.0, -1.0])", hankel0_antiderivative,
+     (np.array([0.0, -1.0]),)),
+):
+    try:
+        _v = _fn(*_args)
+    except ValueError:
+        print(f"  [PASS] {_lbl} -> ValueError")
+    else:
+        print(f"  [FAIL] {_lbl} -> 未抛错,返回 {_v!r}")
+        failures.append(f"silent exit {_lbl}")
+
+# 孪生反例:合法输入必须仍然可用(免得把守卫写成"全拒")
+_ok = True
+for _k, _a in ((1.0, 0.5), (10.0, 0.5), (1e-3, 1.0)):
+    try:
+        _ref = mp_self_coupling(_k, _a) if HAVE_MPMATH else None
+        _got = closed_self_integral(_k, _a)
+        if _ref is not None and rel_err(_got, _ref) > TOL_A:
+            _ok = False
+            print(f"  [FAIL] closed_self_integral({_k:g}, {_a:g}) 精度退化")
+    except ValueError as exc:
+        _ok = False
+        print(f"  [FAIL] 合法输入 {_k} {_a} 被拒: {exc}")
+if hankel0_antiderivative(0.0) != 0.0:
+    _ok = False
+    print("  [FAIL] F(0) 不再精确等于 0")
+if _ok:
+    print("  [PASS] 合法输入仍可用(F(0) = 0、closed 精度不退)")
+else:
+    failures.append("guards too strict")
 
 print("\n" + "=" * 86)
 if failures:
