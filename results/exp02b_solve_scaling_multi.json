@@ -1,0 +1,297 @@
+{
+  "meta": {
+    "ka_unused": null,
+    "method": "random dense complex LU only; repeats per point, fit on min",
+    "solve_only_repeats": {
+      "2000": 2,
+      "4000": 2,
+      "8000": 2,
+      "12000": 1,
+      "14000": 1
+    },
+    "threads": "default",
+    "system_memory": {
+      "total_phys_b": 16510586880,
+      "avail_phys_b": 7489294336,
+      "total_pagefile_b": 27248005120,
+      "avail_pagefile_b": 13387243520,
+      "memory_load_pct": 54
+    },
+    "env": {
+      "python": "3.12.10",
+      "numpy": "2.5.1",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "cpu_count_logical": 24,
+      "thread_env": {
+        "OMP_NUM_THREADS": null,
+        "OPENBLAS_NUM_THREADS": null,
+        "MKL_NUM_THREADS": null,
+        "NUMEXPR_NUM_THREADS": null
+      },
+      "numpy_config_keys": [
+        "Build Dependencies",
+        "Compilers",
+        "Machine Information",
+        "Python Information",
+        "SIMD Extensions"
+      ],
+      "numpy_blas_name": "scipy-openblas"
+    }
+  },
+  "solve_only": {
+    "2000": {
+      "repeats": 2,
+      "t_solve": {
+        "n": 2,
+        "min": 0.6647655998822302,
+        "median": 0.6811065500369295,
+        "max": 0.6974475001916289,
+        "spread_ratio": 1.0491630438085073,
+        "all": [
+          0.6647655998822302,
+          0.6974475001916289
+        ]
+      },
+      "runs": [
+        {
+          "kind": "solve-only",
+          "n_seg": 2000,
+          "t_alloc_s": 0.05095730000175536,
+          "t_solve_s": 0.6647655998822302,
+          "peak_b": 178245632,
+          "ws_after_alloc_b": 100466688,
+          "alloc_footprint_b": 64049152,
+          "ideal_flops": 21333333333.333332,
+          "gflops": 32.09151216174956,
+          "resid_rel": 2.4710939604705075e-12,
+          "repeat": 0
+        },
+        {
+          "kind": "solve-only",
+          "n_seg": 2000,
+          "t_alloc_s": 0.05249060015194118,
+          "t_solve_s": 0.6974475001916289,
+          "peak_b": 178176000,
+          "ws_after_alloc_b": 100397056,
+          "alloc_footprint_b": 64049152,
+          "ideal_flops": 21333333333.333332,
+          "gflops": 30.587726427396813,
+          "resid_rel": 2.4710939604705075e-12,
+          "repeat": 1
+        }
+      ],
+      "resid_rel": 2.4710939604705075e-12,
+      "gflops_min": 32.09151216174956,
+      "peak_b": 178245632,
+      "t_over_n3": 8.309569998527877e-11
+    },
+    "4000": {
+      "repeats": 2,
+      "t_solve": {
+        "n": 2,
+        "min": 0.9626266001723707,
+        "median": 0.9743363501038402,
+        "max": 0.9860461000353098,
+        "spread_ratio": 1.024328747884949,
+        "all": [
+          0.9860461000353098,
+          0.9626266001723707
+        ]
+      },
+      "runs": [
+        {
+          "kind": "solve-only",
+          "n_seg": 4000,
+          "t_alloc_s": 0.21012209984473884,
+          "t_solve_s": 0.9860461000353098,
+          "peak_b": 574345216,
+          "ws_after_alloc_b": 292237312,
+          "alloc_footprint_b": 256049152,
+          "ideal_flops": 170666666666.66666,
+          "gflops": 173.08183325359246,
+          "resid_rel": 2.9419711774986975e-12,
+          "repeat": 0
+        },
+        {
+          "kind": "solve-only",
+          "n_seg": 4000,
+          "t_alloc_s": 0.21606989996507764,
+          "t_solve_s": 0.9626266001723707,
+          "peak_b": 574464000,
+          "ws_after_alloc_b": 292356096,
+          "alloc_footprint_b": 256049152,
+          "ideal_flops": 170666666666.66666,
+          "gflops": 177.2926975382839,
+          "resid_rel": 2.9419711774986975e-12,
+          "repeat": 1
+        }
+      ],
+      "resid_rel": 2.9419711774986975e-12,
+      "gflops_min": 177.2926975382839,
+      "peak_b": 574345216,
+      "t_over_n3": 1.5041040627693293e-11
+    },
+    "8000": {
+      "repeats": 2,
+      "t_solve": {
+        "n": 2,
+        "min": 3.932133900001645,
+        "median": 3.9923226500395685,
+        "max": 4.052511400077492,
+        "spread_ratio": 1.0306137845600316,
+        "all": [
+          3.932133900001645,
+          4.052511400077492
+        ]
+      },
+      "runs": [
+        {
+          "kind": "solve-only",
+          "n_seg": 8000,
+          "t_alloc_s": 0.833347599953413,
+          "t_solve_s": 3.932133900001645,
+          "peak_b": 2124881920,
+          "ws_after_alloc_b": 1060446208,
+          "alloc_footprint_b": 1024049152,
+          "ideal_flops": 1365333333333.3333,
+          "gflops": 347.22452695030603,
+          "resid_rel": 2.2676872509329703e-11,
+          "repeat": 0
+        },
+        {
+          "kind": "solve-only",
+          "n_seg": 8000,
+          "t_alloc_s": 0.8364294001366943,
+          "t_solve_s": 4.052511400077492,
+          "peak_b": 2124771328,
+          "ws_after_alloc_b": 1060298752,
+          "alloc_footprint_b": 1024053248,
+          "ideal_flops": 1365333333333.3333,
+          "gflops": 336.91042381946795,
+          "resid_rel": 2.2676872509329703e-11,
+          "repeat": 1
+        }
+      ],
+      "resid_rel": 2.2676872509329703e-11,
+      "gflops_min": 347.22452695030603,
+      "peak_b": 2124881920,
+      "t_over_n3": 7.679949023440713e-12
+    },
+    "12000": {
+      "repeats": 1,
+      "t_solve": {
+        "n": 1,
+        "min": 10.435460799839348,
+        "median": 10.435460799839348,
+        "max": 10.435460799839348,
+        "spread_ratio": 1.0,
+        "all": [
+          10.435460799839348
+        ]
+      },
+      "runs": [
+        {
+          "kind": "solve-only",
+          "n_seg": 12000,
+          "t_alloc_s": 1.9188373000361025,
+          "t_solve_s": 10.435460799839348,
+          "peak_b": 4697530368,
+          "ws_after_alloc_b": 2340474880,
+          "alloc_footprint_b": 2304126976,
+          "ideal_flops": 4608000000000.0,
+          "gflops": 441.571300816054,
+          "resid_rel": 5.506499585384696e-11,
+          "repeat": 0
+        }
+      ],
+      "resid_rel": 5.506499585384696e-11,
+      "gflops_min": 441.571300816054,
+      "peak_b": 4697530368,
+      "t_over_n3": 6.039039814721845e-12
+    },
+    "14000": {
+      "repeats": 1,
+      "t_solve": {
+        "n": 1,
+        "min": 15.966902199899778,
+        "median": 15.966902199899778,
+        "max": 15.966902199899778,
+        "spread_ratio": 1.0,
+        "all": [
+          15.966902199899778
+        ]
+      },
+      "runs": [
+        {
+          "kind": "solve-only",
+          "n_seg": 14000,
+          "t_alloc_s": 2.612930800067261,
+          "t_solve_s": 15.966902199899778,
+          "peak_b": 6368219136,
+          "ws_after_alloc_b": 3172687872,
+          "alloc_footprint_b": 3136163840,
+          "ideal_flops": 7317333333333.333,
+          "gflops": 458.28133984432264,
+          "resid_rel": 1.677996917161622e-11,
+          "repeat": 0
+        }
+      ],
+      "resid_rel": 1.677996917161622e-11,
+      "gflops_min": 458.28133984432264,
+      "peak_b": 6368219136,
+      "t_over_n3": 5.818841909584467e-12
+    }
+  },
+  "fit": {
+    "single_power_min": {
+      "intercept": -13.57869010935045,
+      "slope": 1.6871111602913598,
+      "max_abs_resid_log": 0.45238329129945615,
+      "n_points": 5,
+      "points": [
+        2000,
+        4000,
+        8000,
+        12000,
+        14000
+      ]
+    },
+    "two_term_N2_N3_coef": [
+      3.443125189039554e-08,
+      3.3088725183815454e-12
+    ],
+    "two_term_max_rel_resid": 0.7530016779783378
+  },
+  "per_point": [
+    {
+      "n": 2000,
+      "t_min_s": 0.6647655998822302,
+      "gflops": 32.09151216174956,
+      "t_over_n3": 8.309569998527877e-11
+    },
+    {
+      "n": 4000,
+      "t_min_s": 0.9626266001723707,
+      "gflops": 177.2926975382839,
+      "t_over_n3": 1.5041040627693293e-11
+    },
+    {
+      "n": 8000,
+      "t_min_s": 3.932133900001645,
+      "gflops": 347.22452695030603,
+      "t_over_n3": 7.679949023440713e-12
+    },
+    {
+      "n": 12000,
+      "t_min_s": 10.435460799839348,
+      "gflops": 441.571300816054,
+      "t_over_n3": 6.039039814721845e-12
+    },
+    {
+      "n": 14000,
+      "t_min_s": 15.966902199899778,
+      "gflops": 458.28133984432264,
+      "t_over_n3": 5.818841909584467e-12
+    }
+  ]
+}

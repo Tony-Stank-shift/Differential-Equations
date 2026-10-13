@@ -31,14 +31,28 @@
 
 ## 3. 实验清单
 
-| 编号 | 内容 | 目的 |
-|---|---|---|
-| E1 | MoM 解 vs Mie 级数解析解 | 正确性验证 |
-| E2 | 稠密求解时间 / 内存 vs N | 展示 O(N^3) 增长与内存墙 |
-| E3 | ACA 块秩特性 | 低秩性的经验证据 |
-| E4 | H 矩阵组装 / 求解时间 vs N | 展示加速效果 |
-| E5 | 块秩 vs 电尺寸 ka | 找出失效边界 |
-| E6 | 固定秩 / ACA 自适应 / NN 预测 三方对比 | 端到端收益 |
+| 编号 | 内容 | 目的 | 状态 |
+|---|---|---|---|
+| E1 | MoM 解 vs Mie 级数解析解 | 正确性验证 | 内容已覆盖（`tests/check_mom.py`），**无独立模块** |
+| E2 | 稠密求解时间 / 内存 vs N | 展示 O(N^3) 增长与内存墙 | **时间已完成**（`experiments/exp02_dense_scaling.py`，2026-10-13）；内存未正式跑 |
+| E3 | ACA 块秩特性 | 低秩性的经验证据 | 未开始 |
+| E4 | H 矩阵组装 / 求解时间 vs N | 展示加速效果 | 未开始 |
+| E5 | 块秩 vs 电尺寸 ka | 找出失效边界 | 未开始 |
+| E6 | 固定秩 / ACA 自适应 / NN 预测 三方对比 | 端到端收益 | 未开始 |
+
+⚠️ **E2 的关键结论（别照着"O(N³)"想当然）**：纯求解的幂律只有在**每 flop 吞吐为常数**时才等于 3。
+本机多线程默认下吞吐随 N 从 32 爬到 458 GFLOP/s，拟合出的**有效指数只有 1.69**；
+把 `OPENBLAS_NUM_THREADS=1` 钉死后吞吐变成近常数，指数立刻回到 **2.926**。
+而且**时间墙在可达 N 上由装配（O(N²)）决定，不是求解**（60 s 预算处装配占 98.8%）。
+细节见 `STATE.md` 的 2.1 节与 D28。
+
+复现：
+```
+python experiments/exp02_dense_scaling.py --part time     # 主套件（装配 + 求解）
+python experiments/exp02_dense_scaling.py --part solve    # 求解幂律（多线程）
+OPENBLAS_NUM_THREADS=1 python experiments/exp02_dense_scaling.py --part solve   # 单线程对照
+python experiments/exp02_dense_scaling.py --part memory   # 2.2 内存（未正式跑）
+```
 
 ## 4. 环境
 

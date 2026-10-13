@@ -13,3 +13,8 @@ results/*.npy
 _tmp_*.py
 _rev*.py
 _scratch/
+
+# 已作废的早期产物(见 experiments/registry.md 的"作废"节)。
+# 里面把 O(N^2) 的装配项硬塞进了 N^3 模型,数字是错的 —— 本地留档,不许入库。
+results/exp02_dense_scaling.json
+figures/exp02_dense_scaling.png

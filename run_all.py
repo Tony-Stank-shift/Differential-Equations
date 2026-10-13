@@ -14,6 +14,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "src"))
+# 实验模块住在 experiments/ 下,而 importlib 只认 sys.path —— 2026-10-13 补上。
+# 缺这一行时 `importlib.import_module("exp02_dense_scaling")` 必然 ModuleNotFoundError,
+# 会被上面的 except 当成"模块尚未实现"而静默 SKIP(即:真模块存在也会被报成不存在)。
+sys.path.insert(0, str(ROOT / "experiments"))
 
 # 实验编号 -> (模块名, 说明)
 EXPERIMENTS: dict[str, tuple[str, str]] = {
