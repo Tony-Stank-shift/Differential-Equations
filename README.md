@@ -139,6 +139,7 @@ proj/
 ├─ run_all.py         一键复现
 ├─ STATE.md           当前进度
 ├─ DECISIONS.md       关键技术决策与理由
+├─ 题目要求对照.md     ⚠️ 原题硬要求 R1–R5 与现状对照(解 R2/R1 前必读,见 D27)
 ├─ src/
 │    green.py         格林函数(含 R->0 渐近分支)
 │    quad.py          奇异积分处理
@@ -163,6 +164,8 @@ proj/
 
 ## 6. 相关文档
 
+- ⚠️ **题目要求**：`题目要求对照.md` —— 原题拆成的 R1–R5 硬要求与现状对照。
+  **读代码/做实验前先看这张表**：NN 是题目的硬要求（不是加分项），见 D27。
 - 进度:`STATE.md`
 - 决策:`DECISIONS.md`
 - 实验记录:`experiments/registry.md`
