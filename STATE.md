@@ -300,14 +300,14 @@ C_n     = −J_n(ka)/H_n⁽²⁾(ka)
 
 ## 环境事实(实测)
 
-- Python:`python`(3.12.10);numpy 2.5.1 / scipy 1.18.1 / matplotlib 3.11.1 / torch 2.13.0+cpu / **mpmath 1.3.0**(仅测试用,已列入 requirements)
+- Python:`python`(3.12.10,标准安装,本项目不依赖具体安装路径);numpy 2.5.1 / scipy 1.18.1 / matplotlib 3.11.1 / torch 2.13.0+cpu / **mpmath 1.3.0**(仅测试用,已列入 requirements)
 - 机器:Intel Core Ultra 9 290HX Plus,24 逻辑核,**16 GB RAM(实测 15.38 GB)**,无 GPU;实测复数 LU 有效算力约 39–63 GFLOPs
 - **瓶颈不是内存,是时间**(0→1.3 复核实测修正)：求解 `np.linalg.solve` 按 LAPACK 语义会**复制一份 Z**，故求解峰值 ≈ `32N²` B ⇒ 实用预算 ~11–12 GB 下内存墙约在 **N ≈ 12000–15000**（原写"安全上限 N ≤ 5000"是保守口径，保留为**推荐**上限）。
 - **时间**：装配 `T = Θ(N²·Q)`（实测约 `290 ns/(N²Q)`）；实测 `assemble_impedance`：N=1000/Q=16 → `4.4 s`、N=2000/Q=64 → **`77.5 s`**。⇒ N=5000/Q=64 推算约 `464 s`（≈8 min）、N=10000 推算约 `31 min`。**"太慢"先于"装不下"到来**，这也是把 `DEFAULT_QUAD_ORDER` 从 64 降到 16 的直接理由（Q 在真实几何下 12 即饱和，见上一条）。
 - 沙箱在 workspace-write 下**禁止 pwsh 子进程出站联网**(curl 全部返回 `000`);机器本身有网,Google/HF/Scholar 需梯子
 - ⚠️ 中文路径在子进程 stderr 中会被 GBK 破坏(Python 自身运行不受影响)
 - 本机 PowerShell 为 5.1(`Get-Content` 无 `-AsByteStream`;`Get-CimInstance` 被沙箱拒绝;**不支持 bash heredoc**,commit message 需走临时文件 + `git commit -F`)
-- Git:仓库在 `proj\`,repo-local 身份已设(`Tony Huang` / `13816096470@163.com`)
+- Git:仓库在 `proj\`,提交身份由仓库内 `git config user.email` 决定(不写进公开文件)
 
 ## 已知的薄裕度判据(不是错,但换环境易翻红)
 

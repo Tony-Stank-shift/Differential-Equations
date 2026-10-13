@@ -42,7 +42,7 @@
 
 ## 4. 环境
 
-使用本机用户级 Python 3.12(标准安装,已有 numpy / matplotlib / torch):
+任意 Python 3.12(标准安装,已有 numpy / matplotlib / torch):
 
 ```
 python
