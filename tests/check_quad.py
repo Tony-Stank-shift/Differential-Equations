@@ -312,21 +312,22 @@ if HAVE_MPMATH:
     else:
         print("  [FAIL] 分段结果依赖阶数")
         failures.append("segment stability")
-    # (a) 默认值必须真的等于 DEFAULT_QUAD_ORDER 那一阶 —— 这条把默认值钉住
-    if abs(e_default - vals[0]) < 1e-15:
-        print(f"  [PASS] 默认值 = order {DEFAULT_QUAD_ORDER} 的结果(钉住默认值)")
+    # (a) **签名默认值**必须真的等于模块常量 `DEFAULT_QUAD_ORDER` —— 把默认值钉住。
+    #     2026-10-13 第 12 轮复核:原版拿 `vals[0]`(硬编码 order=16)来比,于是"把默认值
+    #     改**好**"(16 -> 64)反而变红 —— 判据分不清"改好了"与"改坏了"。
+    #     现在改成与"显式传 DEFAULT_QUAD_ORDER"比,钉子还在,但不再惩罚改进。
+    _e_explicit = rel_err(split_self_integral(k_c, a_c, order=DEFAULT_QUAD_ORDER), ref_c)
+    if abs(e_default - _e_explicit) < 1e-15:
+        print(f"  [PASS] 签名默认值 = 显式传 DEFAULT_QUAD_ORDER({DEFAULT_QUAD_ORDER})的结果")
     else:
-        print(f"  [FAIL] 默认值({e_default:.3e})≠ order 16 的结果({vals[0]:.3e})"
-              f" —— 签名默认值变了")
+        print(f"  [FAIL] 签名默认值({e_default:.3e})≠ order={DEFAULT_QUAD_ORDER} "
+              f"的结果({_e_explicit:.3e}) —— 签名默认值与模块常量脱钩了")
         failures.append("split default pinned")
-    # (b) 默认值**达不到**本模块的 1e-12 标准 —— 这是已知事实,写进断言免得被
-    #     后人误以为"默认即可用";要正确性必须显式传 order>=64
-    if e_default > 1e-12:
-        print(f"  [PASS] 已知事实:默认 order={DEFAULT_QUAD_ORDER} 达不到 1e-12"
-              f"({e_default:.3e}) —— 用这条路径请显式传 order >= 64")
-    else:
-        print(f"  [FAIL] 默认 order 竟达到 1e-12({e_default:.3e})?与 docstring 矛盾")
-        failures.append("split default accuracy claim")
+    # (b) 默认值够不够 1e-12 —— **这是信息,不是判据**(2026-10-13 第 12 轮复核):
+    #     原版把它写成 FAIL,于是"把默认值提到 64"会被判红 —— 判据不该因为"变好了"
+    #     而变红(D14)。默认值偏小是历史选择(装配路径用不着这么高),不是缺陷。
+    print(f"  [info] 默认 order={DEFAULT_QUAD_ORDER} 的 rel_err = {e_default:.3e}"
+          f"({('已达到 1e-12' if e_default <= 1e-12 else '未达 1e-12;用这条路径请显式传 order >= 64')})")
 else:
     report("分段稳定性", float("nan"), TOL_A)
 
@@ -421,6 +422,10 @@ else:
     print(f"  [FAIL] 正当用法误告警: {clean}")
     failures.append("false alarm")
 
+# ⚠️ 计数口径(D14/D24):[PASS] 标签必须**只在真的通过时**打印。
+# 2026-10-13 第 12 轮复核抓出:此前这两段的 `[PASS]` 写在 for 循环**外面**,
+# 于是"守卫被删掉"时同一条判据会**同时**打印 [FAIL] 与 [PASS],PASS 计数还不变
+# —— 按计数核对的人会以为它过了。现改为按 flag 判定。
 for bad in (0.0, -0.1):
     try:
         self_coupling_integral(1.0, bad)
@@ -428,7 +433,8 @@ for bad in (0.0, -0.1):
         failures.append("half_len guard")
     except ValueError:
         pass
-print("  [PASS] half_len <= 0 抛出 ValueError")
+if "half_len guard" not in failures:
+    print("  [PASS] half_len <= 0 抛出 ValueError")
 
 for bad_k in (0.0, -1.0):
     try:
@@ -437,7 +443,8 @@ for bad_k in (0.0, -1.0):
         failures.append("k guard")
     except ValueError:
         pass
-print("  [PASS] k <= 0 抛出 ValueError")
+if "k guard" not in failures:
+    print("  [PASS] k <= 0 抛出 ValueError")
 
 try:
     self_coupling_integral(1.0, 1.0, method="nonsense")
