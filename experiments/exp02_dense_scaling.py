@@ -195,6 +195,51 @@ def system_memory() -> dict:
 # ----------------------------------------------------------------------------
 # 单点测量(在当前进程里做一件事)
 # ----------------------------------------------------------------------------
+#: 内存守卫的**绝对**安全余量。⚠️ 2026-10-13 第 13 轮复核证伪了旧的 `need <= 0.95*free`:
+#: 它放行了 N=14000(实测峰值 5.931 GiB / 当时可用 6.975 GiB = **85.0%**),只剩 1.04 GiB 余量。
+#: 一旦触发交换,计时就彻底作废 —— 交换比算法慢几个数量级,而且测出来的是硬盘不是 CPU。
+SAFETY_MARGIN_B = int(1.0 * 2**30)
+
+
+def memory_admit(n: int) -> dict:
+    """判断能不能跑 N=n 的稠密复矩阵求解,并把判断依据**原样返回**(供落盘)。
+
+    估计式 `32 B/元 + 0.2 GiB` 是实测标定的:N=10000/12000/14000 的实测峰值
+    3.057 / 4.374 / 5.931 GiB,与估计 3.18 / 4.49 / 6.04 GiB 的偏差 ≤4%(且**偏保守**)。
+    注意守卫本身在小 N 处是"装饰"(N=2000 估计 0.32 GiB、实测 0.166 GiB,高估 93%),
+    它真正起作用的是 N≥10000 这一段。
+    """
+    ms = system_memory()
+    need = 32 * n**2 + int(0.2 * 2**30)
+    free, total = ms["avail_phys_b"], ms["total_phys_b"]
+    ok = (need + SAFETY_MARGIN_B <= 0.85 * free) and (need <= 0.5 * total)
+    return {"n": int(n), "need_b": int(need), "free_b": int(free), "total_b": int(total),
+            "margin_b": SAFETY_MARGIN_B, "memory_load_pct": ms["memory_load_pct"],
+            "admit": bool(ok),
+            "rule": "need + 1.0 GiB <= 0.85*avail 且 need <= 0.5*total"}
+
+
+def _report_skip(skip: dict, reasons: list) -> None:
+    reasons.append(skip)
+    print(f"  {skip['n']:>6} | 跳过:需约 {skip['need_b'] / 2**30:.2f} GiB + 余量 "
+          f"{skip['margin_b'] / 2**30:.2f} GiB > 0.85×可用 {skip['free_b'] / 2**30:.2f} GiB"
+          f"(占用 {skip['memory_load_pct']}%)")
+
+
+def _require_resid(rec: dict, tol: float = 1e-8) -> None:
+    """唯一能发现"LAPACK 悄悄换了路径/精度"的数值健康指标,必须**有断言**。
+
+    2026-10-13 第 13 轮复核指出:此前 `resid_rel` 只被打印、从不判定,所以任何静默的
+    数值退化都不会让任何东西变红。实测范围 2.47e-12 … 8.52e-11(随 N 上升,是并行归约
+    累积,不是病态 —— 复核已验 cond₂ 稳定在 1e4–1e5),1e-8 留了 100× 余量。
+    """
+    r = float(rec["resid_rel"])
+    if not (r == r) or r > tol:
+        raise RuntimeError(
+            f"数值健康检查失败:N={rec['n_seg']} 的相对残差 {r:.3e} > {tol:g} "
+            f"—— 说明 LAPACK 路径/精度变了,这份时序不可用")
+
+
 def measure_one(n_seg: int, quad_order: int | None = None) -> dict:
     """装配 + 求解一个点。
 
@@ -260,9 +305,15 @@ def solve_only(n: int, seed: int = 20261013) -> dict:
     t0 = time.perf_counter()
     # ⚠️ **就地填充复数数组**。不要写
     #     A = (rng.standard_normal((n,n)) + 1j*rng.standard_normal((n,n))).astype(complex)
-    #   —— 那样会同时存在两份 (n,n) float64 临时量 + 一份复数结果 + astype 的又一次复制,
-    #   实测 N=12000 时峰值被抬到 **5.40 GiB**(理论 32 B/元 只有 4.29 GiB),
-    #   而当时机器可用只有 5.74 GiB ⇒ 差点 OOM。改成就地填 view 后峰值回到理论值附近。
+    #   —— 那样同时活着的是 **2 份 (n,n) float64 临时量 + 1 份 `1j*` 的复数 + 1 份加法结果
+    #   + 1 份 astype 的复制**(第 13 轮复核纠正:原注释只写"两份 float64",少算了复数那几份),
+    #   实测 N=12000 峰值被抬到 **5.40 GiB / 48.96 B/元**(新写法 32.6 B/元),
+    #   而当时可用只有 5.74 GiB ⇒ 差点 OOM。
+    #   改后就地填 view:实测 44.5/35.9/33.2/32.8/32.6 B/元(N=2000…12000),
+    #   固定基座 ~0.13 GiB 之外就是理论的 32 B/元。
+    #   ⚠️ 两种写法的**分布相同**(复核实测 mean 0/std 0.9997/corr −0.0014/E|z|²=1.9993),
+    #   只有 PRNG 消费顺序不同 ⇒ 改前/改后的 t_solve 严格可比(t_solve 只包 np.linalg.solve)。
+    #   为了以后不再出现"分不清哪条记录是哪种实现",每条记录都带 `solver_impl`。
     A = np.empty((n, n), dtype=np.complex128)
     rng.standard_normal(A.view(np.float64).shape, dtype=np.float64, out=A.view(np.float64))
     b = np.empty(n, dtype=np.complex128)
@@ -279,6 +330,11 @@ def solve_only(n: int, seed: int = 20261013) -> dict:
     return {
         "kind": "solve-only",
         "n_seg": int(n),
+        # 记录实现版本:2026-10-13 之前是"先 draw 两份 float64 再 astype"(峰值 40–49 B/元),
+        # 之后是就地填 view(32–33 B/元)。jsonl 是跨会话追加的,没有这个字段就无法
+        # 区分旧记录 —— 第 13 轮复核正是在这里把一条**旧会话**的 jsonl 记录当成了
+        # exp02a 的点(我复核后证伪:exp02a 的 N=10000 两次 repeat 都是 32.83 B/元)。
+        "solver_impl": "inplace-view-fill",
         "t_alloc_s": t_alloc,
         "t_solve_s": t_solve,
         "peak_b": peak,
@@ -360,10 +416,43 @@ def _spawn(args: list[str], timeout_s: float) -> dict:
     return json.loads(lines[-1])
 
 
+#: 本次进程的**会话标记**。jsonl 是跨会话追加的,没有它就无法自证"哪几条记录属于同一次运行",
+#: 也就无法核对我声称的"单/多线程配对"。2026-10-13 第 13 轮复核实测踩过:复核员只能靠 N 值
+#: 回退推断出 26 个会话,配对关系是**启发式**的而不是自证的。
+SESSION_TAG = time.strftime("%Y%m%dT%H%M%S", time.gmtime())
+
+
 def _dump_points(record: dict) -> None:
     RESULTS.mkdir(exist_ok=True)
+    record = dict(record, ts_utc=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                  session_tag=SESSION_TAG)
     with (RESULTS / "exp02_points.jsonl").open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def effective_thread_label(env: dict) -> tuple[str, str]:
+    """判定"这组结果到底跑在几个线程上",并说明依据。
+
+    ⚠️ 不能写成 ``next(v for v in thread_env.values() if v)`` —— 那是**顺序敏感**的:
+    只设 `MKL_NUM_THREADS=1` 而 numpy 实际链接 OpenBLAS 时,会把标签撒谎成 single。
+    正确做法是先看 numpy 用的是哪个 BLAS,只认它认的那个变量。返回 (标签, 依据)。
+    """
+    blas = (env.get("numpy_blas_name") or "").lower()
+    te = env.get("thread_env") or {}
+    if "openblas" in blas:
+        key, why = "OPENBLAS_NUM_THREADS", f"numpy 链接 {env.get('numpy_blas_name')}"
+    elif "mkl" in blas:
+        key, why = "MKL_NUM_THREADS", f"numpy 链接 {env.get('numpy_blas_name')}"
+    else:
+        # 认不出后端:只要**任何**一个线程变量被设成 1,就按"被钉死"报,并在依据里写明不确定
+        setones = [k for k, v in te.items() if str(v) == "1"]
+        if setones:
+            return "1", f"认不出 BLAS 后端({env.get('numpy_blas_name')!r});但 {', '.join(setones)} = 1"
+        return "default", f"认不出 BLAS 后端({env.get('numpy_blas_name')!r}),且无线程变量被设"
+    val = te.get(key)
+    if val in (None, ""):
+        return "default", f"{why};{key} 未设置 ⇒ 后端自选(实测会跑满核)"
+    return str(val), f"{why};{key}={val}"
 
 
 # ----------------------------------------------------------------------------
@@ -411,6 +500,9 @@ def run_time() -> dict:
               f" {entry['t_solve']['median']:>15.3f}")
 
     solve_agg: dict[int, dict] = {}
+    #: 被内存守卫挡掉的点。**必须落盘**:此前 skip 只打印在 stdout,JSON 里什么都不留,
+    #: 第三方无法区分"这个点没跑"与"跑了但没成功"(第 13 轮复核的 Q7②)。
+    solve_skips: list[dict] = []
     print()
     print("  —— 纯求解(随机稠密复矩阵,**不含装配**;同点也重复)——")
     print(f"  {'N':>6} | {'t_solve min/med/max [s]':>28} | {'散布':>5} |"
@@ -419,10 +511,9 @@ def run_time() -> dict:
     for n, reps in SOLVE_REPEATS.items():
         # A(16 B/元) + LAPACK 侧的第二份 + 解释器基线;/就地填充后 N=10000 实测峰值
         # 3.06 GiB(vs 理论 2.98),故取 34 B/元。40 B/元 是修 bug 前的旧值,会把 N=12000 误挡。
-        need = 34 * n**2 + 0.4 * 2**30
-        free = system_memory()["avail_phys_b"]
-        if need > 0.9 * free:
-            print(f"  {n:>6} | 跳过:需约 {need / 2**30:.2f} GiB > 0.9×可用 {free / 2**30:.2f} GiB")
+        adm = memory_admit(n)
+        if not adm["admit"]:
+            _report_skip(adm, solve_skips)
             continue
         runs = []
         for i in range(reps):
@@ -430,6 +521,7 @@ def run_time() -> dict:
             r["repeat"] = i
             runs.append(r)
             _dump_points(r)
+        _require_resid(runs[0])
         agg_t = _aggregate(runs, "t_solve_s")
         solve_agg[n] = {"repeats": reps, "t_solve": agg_t, "runs": runs,
                         "resid_rel": runs[0]["resid_rel"]}
@@ -529,6 +621,10 @@ def run_time() -> dict:
         },
         "assemble_solve": {str(k): v for k, v in agg.items()},
         "solve_only": {str(k): v for k, v in solve_agg.items()},
+        # 实际跑到的点 vs 常量表:两者不一致时,差异只会出现在这里(第 13 轮复核 Q7②)
+        "solve_points_run": sorted(int(k) for k in solve_agg),
+        "solve_points_skipped": solve_skips,
+        "session_tag": SESSION_TAG,
         "fit": {"assemble_min": fit_a, "assemble_median": fit_a_med,
                 "solve_only_min": fit_s, "solve_only_min_big_n": fit_s_big},
         "assemble_ns_per_n2q": ns_per,
@@ -748,8 +844,11 @@ def run_solve() -> dict:
     env = env_facts()
     print(f"  Python {env['python']} / numpy {env['numpy']} / {env['cpu_count_logical']} 逻辑核")
     print(f"  线程环境: {env['thread_env']}")
-    nt = next((v for v in env["thread_env"].values() if v), None)
-    print(f"  ⇒ 本组为 **{'单线程' if nt == '1' else (nt + ' 线程' if nt else '默认(多线程)')}** 对照")
+    # ⚠️ 不要写 `next(v for v in thread_env.values() if v)`:那是顺序敏感的,只设 MKL 而
+    # numpy 实际链接 OpenBLAS 时会把标签**撒谎**成 single(第 13 轮复核 Q7④)。
+    tag, why = effective_thread_label(env)
+    print(f"  ⇒ 本组为 **{'单线程' if tag == '1' else (tag + ' 线程' if tag != 'default' else '默认(多线程)')}** 对照"
+          f"(依据:{why})")
     ms = system_memory()
     print(f"  可用物理内存 {ms['avail_phys_b'] / 2**30:.2f} GiB,占用 {ms['memory_load_pct']}%")
     print()
@@ -758,14 +857,12 @@ def run_solve() -> dict:
     print("  " + "-" * 100)
 
     agg: dict[int, dict] = {}
+    skips: list[dict] = []
     prev = None
     for n, reps in SOLVE_ONLY_REPEATS.items():
-        # 本组的守卫用**实测标定**的估计(32 B/元 + 0.2 GiB):N=12000/14000 实测峰值
-        # 4.37 / 5.93 GiB,与 32N²+0.09 吻合 1%。run_time 那边用 34N²+0.4 更保守。
-        need = 32 * n**2 + 0.2 * 2**30
-        free = system_memory()["avail_phys_b"]
-        if need > 0.95 * free:
-            print(f"  {n:>6} | 跳过:需约 {need / 2**30:.2f} GiB > 0.95×可用 {free / 2**30:.2f} GiB")
+        adm = memory_admit(n)
+        if not adm["admit"]:
+            _report_skip(adm, skips)
             continue
         runs = []
         for i in range(reps):
@@ -773,6 +870,7 @@ def run_solve() -> dict:
             r["repeat"] = i
             runs.append(r)
             _dump_points(r)
+        _require_resid(runs[0])
         t = _aggregate(runs, "t_solve_s")
         gfl = (8.0 / 3.0) * n**3 / t["min"] / 1e9
         agg[n] = {"repeats": reps, "t_solve": t, "runs": runs,
@@ -805,7 +903,11 @@ def run_solve() -> dict:
             "ka_unused": None,
             "method": "random dense complex LU only; repeats per point, fit on min",
             "solve_only_repeats": {str(k): v for k, v in SOLVE_ONLY_REPEATS.items()},
-            "threads": nt or "default",
+            "threads": tag,
+            "threads_evidence": why,
+            "solve_points_run": sorted(int(k) for k in agg),
+            "solve_points_skipped": skips,
+            "session_tag": SESSION_TAG,
             "system_memory": ms,
             "env": env,
         },
@@ -817,11 +919,11 @@ def run_solve() -> dict:
                        "gflops": float(agg[int(n)]["gflops_min"]),
                        "t_over_n3": float(agg[int(n)]["t_over_n3"])} for n in sn],
     }
-    tag = "single" if nt == "1" else "multi"
-    out = RESULTS / f"exp02b_solve_scaling_{tag}.json"
+    tag_name = "single" if tag == "1" else "multi"
+    out = RESULTS / f"exp02b_solve_scaling_{tag_name}.json"
     out.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"\n  已写入 {out.relative_to(ROOT)}")
-    fig = make_solve_figure(payload, tag)
+    fig = make_solve_figure(payload, tag_name)
     if fig:
         print(f"  已写入 {fig.relative_to(ROOT)}")
     return payload
