@@ -104,11 +104,14 @@ MEM_REPEATS = {800: 1, 1600: 1, 3200: 1, 6400: 1}
 #: 硬编码 11400 时,一旦运行那一刻可用内存掉到 5.2 GiB,整次运行就会**没有大 N 锚点**,
 #: 只剩 6400 外推 1.8× 到 4 GB,说服力不足。
 #: 预注册规则:按顺序取**第一个**通过守卫的点;一个都过不了就如实记 skipped,**不降阈值**。
-#: ⚠️ 2026-10-19 补:阶梯顶必须 **≥ 11050**。第一版顶是 10400,实测峰值 3.33 GiB(3.57 GB),
-#: 离台账要求的"首次 > 4 GB"差 5%,只能报外推;而按拟合 `peak = e + 32.36·N²`,
-#: 4.0 GB 的过零点在 N ≈ 11,013 —— 也就是**本来就够跑**,只是阶梯顶设低了。
-#: 现在顶取 11400/11200/11050:在 5.8 GiB 可用时会落到 11050(峰值 ≈ 4.03 GB,实测越过)。
-MEM_TOP_LADDER = (11400, 11200, 11050, 10800, 10400, 10000, 9600, 8800, 8000)
+#: ⚠️ 2026-10-19 补:阶梯顶必须 **≥ 11425**(4 GiB 的拟合过零点)。
+#: 第一版顶是 10400(峰值 3.33 GiB,离 4 GB 差 11%),只能外推;
+#: 第二版顶 11400 也只到 3.981 GiB —— **离过零点还差 25**(差 0.2%),仍然只能外推。
+#: 复盘(第 3 轮子代理复核证伪了"等机器空闲"的说法):当时可用 6.20 GiB,
+#: 真实守卫按 `need+1 ≤ 0.85·free` 放到 N≈11,690,**本来就够跑**;
+#: 没拿到实测点纯粹是**阶梯顶设短了**,不是内存不够。
+#: 现在顶取 11600(预测 4.12 GiB,留 3% 余量),其次 11500(预测 4.05 GiB,余量 1.3%)。
+MEM_TOP_LADDER = (11600, 11500, 11400, 11200, 11050, 10800, 10400, 10000, 9600, 8800, 8000)
 
 
 def _med(vals: list[float]) -> float:
@@ -228,6 +231,22 @@ def memory_admit(n: int) -> dict:
             "margin_b": SAFETY_MARGIN_B, "memory_load_pct": ms["memory_load_pct"],
             "admit": bool(ok),
             "rule": "need + 1.0 GiB <= 0.85*avail 且 need <= 0.5*total"}
+
+
+def guard_capacity(avail_b: int, total_b: int) -> float:
+    """**真实内存守卫**下,当前可用内存能跑的最大 N(与 `memory_admit` 同一套常数)。
+
+    守卫价格:`need(n) = 32n² + 0.2 GiB`;条件:
+        `need + 1.0 GiB ≤ 0.85·avail` 且 `need ≤ 0.5·total`
+    ⇒ `N_max = sqrt((min(0.85·avail − 1 GiB, 0.5·total) − 0.2 GiB) / 32)`。
+
+    ⚠️ 不要用「拟合峰值反函数」`e + f·N² = 0.85·avail` 去算这个数:那会把守卫的
+    **0.2 GiB 基座**与 **32 B/元** 的价格换成拟合的 32.32 B/元,两者差 ~1%
+    (2026-10-19 复核实测:6.2031 GiB 下拟合口径 11,815 vs 真实守卫 11,690)。
+    """
+    cap = min(0.85 * avail_b - SAFETY_MARGIN_B, 0.5 * total_b)
+    v = (cap - int(0.2 * 2**30)) / 32.0
+    return float(math.sqrt(v)) if v > 0 else float("nan")
 
 
 def _report_skip(skip: dict, reasons: list) -> None:
@@ -755,7 +774,7 @@ def run_memory() -> dict:
                   f"守卫 `need+1.0 ≤ 0.85×可用`({adm['free_b'] / 2**30:.2f} GiB)通过")
             break
         _report_skip(adm, skips)
-    plan = list(MEM_REPEATS) + ([top] if top is not None else [])
+    plan = list(MEM_REPEATS) + ([top] if (top is not None and top not in MEM_REPEATS) else [])
 
     print()
     print(f"  {'N':>6} | {'基线':>9} | {'Z 足迹':>10} | {'B/元':>6} | {'峰值':>10} |"
@@ -771,10 +790,11 @@ def run_memory() -> dict:
         for i in range(reps):
             r = _spawn(["--point", str(n)], timeout_s=3600)
             r["repeat"] = i
-            # 记下"这一条是在多少可用内存下跑的":判据要求内存墙按**当时**可用量报,
-            # 而可用量在大 N 的十分钟装配期间会变 —— 没有这个字段就事后无法交代。
-            r["avail_phys_b_at_spawn"] = adm["free_b"]
-            r["memory_load_pct_at_spawn"] = adm["memory_load_pct"]
+            # 记下"这一条是在多少可用内存下跑的":判据要求内存墙按**当时**可用量报。
+            # ⚠️ 这是**守卫检查那一刻**的可用量,不是子进程真正分配时的(两者可能差几十秒;
+            # 复核 2026-10-19 指出原名 `_at_spawn` 名不副实,已改 `_at_admit`)。
+            r["avail_phys_b_at_admit"] = adm["free_b"]
+            r["memory_load_pct_at_admit"] = adm["memory_load_pct"]
             runs.append(r)
             _dump_points(r)
         r = runs[0]
@@ -805,9 +825,10 @@ def run_memory() -> dict:
         v = (cap_b - e_b) / f_b
         return float(math.sqrt(v)) if v > 0 else float("nan")
 
-    # 小 N 点的足迹只有 ~10 MB,而减基线(ws_before ≈ 60 MB)自带 ~0.4 MB 噪声 ⇒
-    # 单点系数被抬到 17.5(N=800),把**全段** log-log 截距拉到 ~21 B/元。
-    # 那个数不是物理系数,别引用:另报「大 N 口径」(N ≥ 3200)的斜率与逐点中位。
+    # 小 N 点的足迹只有 ~10 MB,而减基线(ws_before ≈ 60 MB)自带加性固定开销
+    # (~0.35 MB @ N=800,即 3.4%;几何/分配器保留,不随 N 变)。它把单点系数抬到
+    # 16.55、把**全段** log-log 截距抬到 17.89 B/元。那两个数不是物理系数,别引用:
+    # 另报「大 N 口径」(N ≥ 3200)的斜率与逐点中位。
     print()
     print("  —— 拟合 ——")
     big = ns >= 3200
@@ -840,16 +861,27 @@ def run_memory() -> dict:
         how = f"✅ 实测越过:N = {obs}" if obs else "⚠️ 外推(没有观测点越过)"
         print(f"  {k:>20}: N ≈ {n_cross:,.0f}   {how}")
     if not observed_gib:
-        # 要用**实测**越过,守卫要求 need+1.0 ≤ 0.85·free,按外推 N 反算需要多少空闲
+        # 要用**实测**越过,守卫要求 need+1.0 ≤ 0.85·free,按外推 N 反算需要多少空闲。
         need_at_cross = 32 * crossing["4 GiB (4·2^30 B)"] ** 2 + int(0.2 * 2**30)
         free_for_obs = (need_at_cross + SAFETY_MARGIN_B) / 0.85
-        print(f"     · 要实测越过 4 GiB,守卫要求可用 ≥ {free_for_obs / 2**30:.2f} GiB"
-              f"(此刻 {avail / 2**30:.2f} GiB)⇒ 等机器空闲再补,不降阈值。")
+        if avail >= free_for_obs:
+            # 2026-10-19 复核证伪了第一版这里写的"等机器空闲再补":门槛当时**已经满足**,
+            # 真因是阶梯顶(11400)低于过零点(11425)。判据的锚点设短了,不能赖机器。
+            print(f"     · 要实测越过 4 GiB 需可用 ≥ {free_for_obs / 2**30:.2f} GiB,"
+                  f"此刻 {avail / 2**30:.2f} GiB **已够** ⇒ 没越过是**阶梯顶设低了**"
+                  f"(本轮顶 N={int(ns[-1])}),不是内存不够;下一轮把阶梯顶抬到 ≥ "
+                  f"{math.ceil(crossing['4 GiB (4·2^30 B)']):d}。")
+        else:
+            print(f"     · 要实测越过 4 GiB 暂不可行:需可用 ≥ {free_for_obs / 2**30:.2f} GiB,"
+                  f"此刻 {avail / 2**30:.2f} GiB ⇒ 等机器空闲再补,不降阈值。")
     print(f"     · 实测最大峰值:N={int(ns[-1])} → {float(pk[-1]) / 2**30:.3f} GiB"
           f" = {float(pk[-1]) / 1e9:.3f} GB")
     walls = {
         "avail_now_x0.80": n_at_peak(avail * 0.80),
-        "avail_now_guard_rule": n_at_peak(0.85 * avail - SAFETY_MARGIN_B),
+        # ⚠️ 这一项是**拟合口径**(用 e+f·N² 反解 0.85·avail),与真实守卫差 ~1%;
+        # 论文/台账引用墙时必须用下一项 `guard_capacity_now`(与 memory_admit 同一套常数)。
+        "fit_capacity_x0.85": n_at_peak(0.85 * avail - SAFETY_MARGIN_B),
+        "guard_capacity_now": guard_capacity(avail, ms["total_phys_b"]),
         "idle_window_8.5GiB_x0.80": n_at_peak(8.5 * 2**30 * 0.80),
         "total_15.38GiB_x0.80": n_at_peak(ms["total_phys_b"] * 0.80),
         "budget_11GiB": n_at_peak(11 * 2**30),
@@ -859,6 +891,8 @@ def run_memory() -> dict:
     print("  —— 内存墙(同一个拟合,换「可用量口径」就换 N) ——")
     for k, v in walls.items():
         print(f"  {k:>26}: N ≈ {v:,.0f}")
+    print(f"  ⇒ 论文引用墙请用 `guard_capacity_now`(真实守卫);"
+          f"`fit_capacity_x0.85` 是拟合口径,比守卫松约 1%。")
 
     RESULTS.mkdir(exist_ok=True)
     payload = {
@@ -866,7 +900,10 @@ def run_memory() -> dict:
             "ka": K_WAVE * RADIUS, "n_list": [int(r["n_seg"]) for r in points],
             "mem_repeats": {str(k): v for k, v in MEM_REPEATS.items()},
             "mem_top_ladder": [int(x) for x in MEM_TOP_LADDER],
-            "mem_top_chosen": None if top is None else int(top),
+            # 预注册阶梯选中了谁(pick) vs 实际跑成了谁(run):若 top 在逐点复核时被 skip,
+            # 两者会不同 —— 分开记,JSON 才不会自相矛盾(2026-10-19 复核指出)。
+            "mem_top_ladder_pick": None if top is None else int(top),
+            "mem_top_run": int(ns[-1]),
             "method": "one fresh process per point; peak = process PeakWorkingSetSize",
             "timing_note": "t_assemble/t_solve 是装配的副产品,负载未受控,"
                            "不得用于 2.1 的时间拟合",
@@ -916,19 +953,28 @@ def make_memory_figure(payload: dict):
     ns = np.array([r["n_seg"] for r in pts], dtype=float)
     zf = np.array([r["z_footprint_b"] for r in pts], dtype=float)
     pk = np.array([r["peak_b"] for r in pts], dtype=float)
+    e_b, f_b = payload["fit"]["peak_a_b"]
 
     fig, ax = plt.subplots(figsize=(7.0, 5.4))
-    ax.loglog(ns, (pk - pk[0] * 0) / 2**20, "^-", label="process peak")
+    ax.loglog(ns, pk / 2**20, "^-", label="process peak (measured)")
+    # 拟合曲线必须画:小 N 处峰值被固定基座抬高,只画 32N² 会让读者误判拟合质量。
+    ax.loglog(ns, (e_b + f_b * ns**2) / 2**20, "-", color="#1f77b4", lw=1, alpha=0.55,
+              label=r"fit $e+fN^2$")
     ax.loglog(ns, zf / 2**20, "o-", label=r"$Z$ footprint")
     ax.loglog(ns, 16 * ns**2 / 2**20, "k--", lw=1, label=r"$16N^2$ B")
     ax.loglog(ns, 32 * ns**2 / 2**20, "k:", lw=1, label=r"$32N^2$ B")
-    # 台账 2.2 的验收线:峰值首次越过 4 GB(4e9 B)。画上去,读者一眼看出实测点有没有越过。
+    # 台账 2.2 的验收线:4 GB 与 4 GiB 两条都画(差 7.4%,0.47% 的差距只有图上能看出来)。
     ax.axhline(4.0e9 / 2**20, color="0.35", ls="-.", lw=1, label="4 GB = 4e9 B")
+    ax.axhline(4.0 * 2**30 / 2**20, color="0.60", ls="-.", lw=1,
+               label=r"4 GiB = $4\cdot2^{30}$ B")
+    ax.annotate(f"{pk[-1] / 2**30:.3f} GiB\n{pk[-1] / 1e9:.3f} GB",
+                (ns[-1], pk[-1] / 2**20), textcoords="offset points", xytext=(-64, -34),
+                ha="right", fontsize=8)
     ax.set_xlabel("unknowns $N$")
     ax.set_ylabel("memory [MiB]")
     ax.set_title("E2-B dense memory vs $N$ (one fresh process per point)")
     ax.grid(True, which="both", alpha=0.3)
-    ax.legend(fontsize=8)
+    ax.legend(fontsize=7.5, loc="lower right")
     fig.tight_layout()
     FIGURES.mkdir(exist_ok=True)
     path = FIGURES / "exp02c_dense_memory.png"
