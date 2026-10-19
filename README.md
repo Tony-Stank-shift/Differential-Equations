@@ -34,8 +34,8 @@
 | 编号 | 内容 | 目的 | 状态 |
 |---|---|---|---|
 | E1 | MoM 解 vs Mie 级数解析解 | 正确性验证 | 内容已覆盖（`tests/check_mom.py`），**无独立模块** |
-| E2 | 稠密求解时间 / 内存 vs N | 展示 O(N^3) 增长与内存墙 | **时间已完成**（`experiments/exp02_dense_scaling.py`，2026-10-13）；内存未正式跑 |
-| E3 | ACA 块秩特性 | 低秩性的经验证据 | 未开始 |
+| E2 | 稠密求解时间 / 内存 vs N | 展示 O(N^3) 增长与内存墙 | **时间已完成**（`experiments/exp02_dense_scaling.py`，2026-10-13）；**内存也已完成**（2026-10-19，`results/exp02c_dense_memory.json`） |
+| E3 | ACA 块秩特性 | 低秩性的经验证据 | 3.1 聚类已完成（`src/cluster.py`）；`aca.py`/`exp03` 未开始 |
 | E4 | H 矩阵组装 / 求解时间 vs N | 展示加速效果 | 未开始 |
 | E5 | 块秩 vs 电尺寸 ka | 找出失效边界 | 未开始 |
 | E6 | 固定秩 / ACA 自适应 / NN 预测 三方对比 | 端到端收益 | 未开始 |
@@ -46,12 +46,18 @@
 而且**时间墙在可达 N 上由装配（O(N²)）决定，不是求解**（60 s 预算处装配占 98.8%）。
 细节见 `STATE.md` 的 2.1 节与 D28。
 
+⚠️ **E2 内存（2.2，2026-10-19）**：`peak = 72.7 MiB + 32.32·N²`（残差 5.0 MiB，系数/32 = 1.010），
+Z 足迹系数 **16.01 B/元**（complex128）；**峰值首次 > 4.0 GB 是实测**：N=11,400 → 4,275 MB。
+⚠️ 内存墙必须**按运行时可用量**报：当刻可用 6.20 GiB → N≈11,815，而按总量 15.38 GiB 报会得 20,158（高估 70%）。
+GB(4e9) 与 GiB(4·2^30) 差 7.4%，两个口径必须分开标"实测/外推"（见 D30）。
+
+
 复现：
 ```
 python experiments/exp02_dense_scaling.py --part time     # 主套件（装配 + 求解）
 python experiments/exp02_dense_scaling.py --part solve    # 求解幂律（多线程）
 OPENBLAS_NUM_THREADS=1 python experiments/exp02_dense_scaling.py --part solve   # 单线程对照
-python experiments/exp02_dense_scaling.py --part memory   # 2.2 内存（未正式跑）
+python experiments/exp02_dense_scaling.py --part memory   # 2.2 内存（2026-10-19 已跑；顶部锚点由内存守卫决定）
 ```
 
 ## 4. 环境
@@ -95,12 +101,18 @@ python tests/check_green.py      # 1.1 格林函数
 python tests/check_quad.py       # 1.2 奇异积分
 python tests/check_mom.py        # 1.3 矩量法(含黄金值 J 与鉴别力 K 判据)
 python tests/check_rcs.py        # 1.4 远场 RCS 对 Mie 解析解(含判据 A/M/E/S/R/C 与鉴别力 K)
+python tests/check_cluster.py    # 3.1 二叉树聚类(48 项 = 42 鉴别力 + 6 基线)
+python tests/mut_check_cluster.py  # 3.1 的鉴别力审计:10 个变异体必须全部变红
 ```
 
 四套共 **189 项**(green 17 / quad 28 / mom 72 / rcs 72),全部 `exit 0`(2026-10-13 实测;第 12 轮复核把 `check_quad` 的一条"已知事实"从判据降级为 `[info]`,故 29→28)。
-计数口径见 D24:数字要分开报"有鉴别力的判据"与"恒定 PASS 的冒烟基线"——`check_rcs` 已甄别出 **71 + 1 基线(M4)**,其余三套尚**未逐条甄别**是否有同类基线。
+**新增第五套 `check_cluster` = 48 项**(42 条有鉴别力 + 6 条基线,2026-10-19),它不在那 189 项里 —— 两套数字**不要相加后混报**(D24:口径要分开写)。
+计数口径见 D24:数字要分开报"有鉴别力的判据"与"恒定 PASS 的冒烟基线"——`check_rcs` 已甄别出 **71 + 1 基线(M4)**,`check_cluster` 已甄别出 **42 + 6 基线**;其余三套尚**未逐条甄别**是否有同类基线。
 **每个判据都必须能变红**(纪律 D14):`check_*.py` 里的
 `K` 组就是"故意做错,必须变红"的孪生反例 —— 一个无论对错都 PASS 的判据是装饰。
+`check_cluster` 还额外带一个**元测试** `mut_check_cluster.py`:把模块/检查器逐个改坏,
+自检必须变红(2026-10-19 复核发现旧版有 8 个分支删掉仍全绿,这条就是那次返修的产物)。
+
 
 ### 1.4 的归一化基准(引用 RCS 数字前必读)
 
@@ -159,7 +171,7 @@ proj/
 │    quad.py          奇异积分处理
 │    mom.py           矩量法:填充 Z、V
 │    rcs.py           远场幅度与散射宽度(含 Mie 级数远场,Mie 角核见 D19)
-│    cluster.py       二叉树聚类            [路线图 3.x,尚未实现]
+│    cluster.py       二叉树聚类(高度平衡;叶子大小 ∈{⌊N/k⌋,⌈N/k⌉})  [3.1 已完成]
 │    aca.py           部分主元 ACA          [路线图 3.x,尚未实现]
 │    hmatrix.py       H 矩阵组装与存储      [路线图 3.x,尚未实现]
 │    nnrank.py        神经网络秩预测        [路线图 4.x,尚未实现]
@@ -169,9 +181,12 @@ proj/
 │    check_quad.py    1.2 自检
 │    check_mom.py     1.3 自检
 │    check_rcs.py     1.4 自检
+│    check_cluster.py 3.1 自检(48 项)
+│    mut_check_cluster.py  3.1 的鉴别力元测试(变异体必须变红)
 ├─ experiments/
 │    registry.md      实验登记簿(配置 -> 脚本 -> 输出 -> 图)
-│    exp0*.py         路线图 2.x-4.x 的实验模块,尚未实现
+│    exp02_dense_scaling.py  E2:稠密时间 / 内存 vs N(已实现)
+│    exp0*.py         其余路线图 3.x-4.x 的实验模块,尚未实现
 ├─ results/           数值结果
 └─ figures/           图(dpi >= 300)
 ```

@@ -97,7 +97,18 @@ TIME_REPEATS = {400: 3, 800: 3, 1600: 3, 3200: 2, 6400: 2}
 #: 能触到的最大规模,再往上就 OOM 了。
 SOLVE_REPEATS = {2000: 3, 4000: 3, 8000: 2, 10000: 2, 12000: 2}
 #: 2.2 峰值内存的扫描点 -> 重复次数(峰值内存不受负载影响,1 次即可)
+#: 基础四点覆盖 64× 的 N² 跨度,足够把 `peak = e + f·N²` 的自由度(2 个)定住 5 倍。
 MEM_REPEATS = {800: 1, 1600: 1, 3200: 1, 6400: 1}
+#: 2.2 的**顶部锚点候选阶梯**(按所需内存从大到小)。为什么要阶梯而不是硬编码一个点:
+#: 本机可用内存随负载在 5–7 GiB 之间漂,而守卫(`need+1.0 ≤ 0.85·free`)只在临界处起作用 ——
+#: 硬编码 11400 时,一旦运行那一刻可用内存掉到 5.2 GiB,整次运行就会**没有大 N 锚点**,
+#: 只剩 6400 外推 1.8× 到 4 GB,说服力不足。
+#: 预注册规则:按顺序取**第一个**通过守卫的点;一个都过不了就如实记 skipped,**不降阈值**。
+#: ⚠️ 2026-10-19 补:阶梯顶必须 **≥ 11050**。第一版顶是 10400,实测峰值 3.33 GiB(3.57 GB),
+#: 离台账要求的"首次 > 4 GB"差 5%,只能报外推;而按拟合 `peak = e + 32.36·N²`,
+#: 4.0 GB 的过零点在 N ≈ 11,013 —— 也就是**本来就够跑**,只是阶梯顶设低了。
+#: 现在顶取 11400/11200/11050:在 5.8 GiB 可用时会落到 11050(峰值 ≈ 4.03 GB,实测越过)。
+MEM_TOP_LADDER = (11400, 11200, 11050, 10800, 10400, 10000, 9600, 8800, 8000)
 
 
 def _med(vals: list[float]) -> float:
@@ -708,26 +719,62 @@ def make_time_figure(payload: dict):
 # 2.2 内存
 # ----------------------------------------------------------------------------
 def run_memory() -> dict:
+    """2.2:峰值内存 vs N,给出内存墙与「峰值首次超过 4 GB」的 N。
+
+    ⚠️ 三个口径必须分开写(否则论文里那张图会被审稿人问穿):
+    - **`Z 足迹`** = 装配前后的工作集差,预期 **16 B/元**(complex128 稠密矩阵本体);
+    - **`峰值`** = 整个进程的 `PeakWorkingSetSize`,预期 **`e + f·N²`** 且 **`f ≈ 32 B/元`**
+      (Z 本体 16 + `np.linalg.solve` 内部复制的一份 16);
+    - **`内存墙`** 按**当时可用量**报:同一个 `f` 下"能跑多大"取决于机器此刻有多少空闲,
+      只按总量(15.38 GiB)报是错的。
+    每点一条**新进程**:峰值工作集是进程内单调量,顺序测量会让小 N 的峰值被大 N 污染
+    (⚠️ 这一条只对**峰值**成立;时间测量的"顺序污染"已被第 13 轮复核证伪,见模块 docstring)。
+    """
     print("=" * 78)
     print("E2-B 稠密求解的**内存** vs N(2.2)")
     print("=" * 78)
     ms = system_memory()
+    avail = ms["avail_phys_b"]
     print(f"  物理内存   : {ms['total_phys_b'] / 2**30:.2f} GiB"
-          f"(此刻可用 {ms['avail_phys_b'] / 2**30:.2f} GiB,占用 {ms['memory_load_pct']}%)")
+          f"(此刻可用 {avail / 2**30:.2f} GiB,占用 {ms['memory_load_pct']}%)")
     print("  ⚠️ 每点一条**新进程**:峰值工作集在进程内单调,顺序测量会让小 N 的峰值"
           "被大 N 污染。内存量与机器负载无关,故每点 1 次即可。")
-    print("  ⚠️ 2.2 尚未正式跑(用户 2026-10-13 指定先做 2.1);下面是可运行、未出数的路径。")
+    print("  ⚠️ 本实验顺带产出的 t_assemble/t_solve **不得用于 2.1 的时间拟合**"
+          "(负载未受控;见 payload.meta.timing_note)。")
 
     points: list[dict] = []
+    skips: list[dict] = []
+
+    # ---- 顶部锚点:按预注册阶梯取第一个能过守卫的 ----
+    top = None
+    for cand in MEM_TOP_LADDER:
+        adm = memory_admit(cand)
+        if adm["admit"]:
+            top = cand
+            print(f"  顶部锚点取 N={cand}:估计需 {adm['need_b'] / 2**30:.2f} GiB,"
+                  f"守卫 `need+1.0 ≤ 0.85×可用`({adm['free_b'] / 2**30:.2f} GiB)通过")
+            break
+        _report_skip(adm, skips)
+    plan = list(MEM_REPEATS) + ([top] if top is not None else [])
+
     print()
     print(f"  {'N':>6} | {'基线':>9} | {'Z 足迹':>10} | {'B/元':>6} | {'峰值':>10} |"
           f" {'峰值-基线':>10} | {'B/元(N²)':>9}")
     print("  " + "-" * 88)
-    for n, reps in MEM_REPEATS.items():
+    for n in plan:
+        reps = MEM_REPEATS.get(n, 1)
+        adm = memory_admit(n)          # 大 N 点要跑十几分钟,运行前再核一次可用内存
+        if not adm["admit"]:
+            _report_skip(adm, skips)
+            continue
         runs = []
         for i in range(reps):
             r = _spawn(["--point", str(n)], timeout_s=3600)
             r["repeat"] = i
+            # 记下"这一条是在多少可用内存下跑的":判据要求内存墙按**当时**可用量报,
+            # 而可用量在大 N 的十分钟装配期间会变 —— 没有这个字段就事后无法交代。
+            r["avail_phys_b_at_spawn"] = adm["free_b"]
+            r["memory_load_pct_at_spawn"] = adm["memory_load_pct"]
             runs.append(r)
             _dump_points(r)
         r = runs[0]
@@ -738,49 +785,113 @@ def run_memory() -> dict:
               f" {r['z_bytes_per_entry']:>6.1f} | {r['peak_b'] / 2**20:>9.1f}M |"
               f" {delta / 2**20:>9.1f}M | {delta / n**2:>9.2f}")
 
+    if len(points) < 2:
+        raise RuntimeError(
+            f"2.2 至少需要 2 个点才能拟合 `peak = e + f·N²`,实际只跑成 {len(points)} 个"
+            f"(跳过 {len(skips)} 个);这是机器可用内存不足,不是数据缺陷。")
+
     ns = np.array([r["n_seg"] for r in points], dtype=float)
     zf = np.array([r["z_footprint_b"] for r in points], dtype=float)
     pk = np.array([r["peak_b"] for r in points], dtype=float)
+    per_entry = np.array([r["z_bytes_per_entry"] for r in points], dtype=float)
     fit_z = _loglog_fit(ns, zf)
 
     A = np.column_stack([np.ones_like(ns), ns**2])
     coef_m, *_ = np.linalg.lstsq(A, pk, rcond=None)
     resid_m = A @ coef_m - pk
+    e_b, f_b = float(coef_m[0]), float(coef_m[1])
 
-    print()
-    print("  —— 拟合 ——")
-    print(f"  Z 足迹  ~ N^{fit_z['slope']:.3f}  (预期 2;最大残差 {fit_z['max_abs_resid_log']:.4f} log)")
-    print(f"  Z 系数  = {math.exp(fit_z['intercept']):.2f} B/元  (理论 16 B/元 = complex128)")
-    print(f"  峰值    = {coef_m[0] / 2**20:.1f} MiB + {coef_m[1]:.2f} B·N²  "
-          f"(最大残差 {np.max(np.abs(resid_m)) / 2**20:.1f} MiB)")
-    print(f"  理论预期:Z 本体 16 B/元 + LAPACK 复制一份 = 32 B/元 ⇒ 系数比 ="
-          f" {coef_m[1] / 32.0:.3f}")
-
-    def n_mem_wall(cap_b):
-        v = (cap_b - coef_m[0]) / coef_m[1]
+    def n_at_peak(cap_b: float) -> float:
+        v = (cap_b - e_b) / f_b
         return float(math.sqrt(v)) if v > 0 else float("nan")
 
+    # 小 N 点的足迹只有 ~10 MB,而减基线(ws_before ≈ 60 MB)自带 ~0.4 MB 噪声 ⇒
+    # 单点系数被抬到 17.5(N=800),把**全段** log-log 截距拉到 ~21 B/元。
+    # 那个数不是物理系数,别引用:另报「大 N 口径」(N ≥ 3200)的斜率与逐点中位。
+    print()
+    print("  —— 拟合 ——")
+    big = ns >= 3200
+    fit_z_big = _loglog_fit(ns[big], zf[big]) if int(big.sum()) >= 2 else None
+    z_coef_big = float(np.median(per_entry[big])) if big.any() else float("nan")
+    print(f"  Z 足迹  ~ N^{fit_z['slope']:.3f}  (全段,预期 2;最大残差 {fit_z['max_abs_resid_log']:.4f} log)")
+    if fit_z_big:
+        print(f"  Z 足迹  ~ N^{fit_z_big['slope']:.3f}  (只取 N≥3200;最大残差"
+              f" {fit_z_big['max_abs_resid_log']:.4f} log)")
+    print(f"  Z 系数  = {z_coef_big:.2f} B/元  (N≥3200 逐点中位;理论 16 = complex128)")
+    print(f"            ⚠️ 全段 log-log 截距 {math.exp(fit_z['intercept']):.2f} B/元 **不可引用**:"
+          f"小 N 点的固定基线噪声把小值抬高")
+    print(f"  峰值    = {e_b / 2**20:.1f} MiB + {f_b:.2f} B·N²  "
+          f"(最大残差 {float(np.max(np.abs(resid_m))) / 2**20:.1f} MiB;系数/32 = {f_b / 32.0:.3f})")
+
+    # ---- 台账 2.2 的原验收:「峰值内存首次 > 4 GB 的 N 值」 ----
+    # 4 GB 与 4 GiB 差 7.4%,两个口径都报(本项目对"GB/GiB 混写"已有前科:σ_2D 的 2π)。
+    four_gb, four_gib = 4.0e9, 4.0 * 2**30
+    crossing = {"4.0 GB (4e9 B)": n_at_peak(four_gb),
+                "4 GiB (4·2^30 B)": n_at_peak(four_gib)}
+    observed_dec = [int(n) for n, p in zip(ns, pk) if p > four_gb]
+    observed_gib = [int(n) for n, p in zip(ns, pk) if p > four_gib]
+    print()
+    print("  —— 峰值首次越过 4 GB 的 N(台账 2.2 原验收) ——")
+    print("  ⚠️ GB(4e9)与 GiB(4·2^30)差 7.4%,两个口径都报;『实测』= 有观测点越过了它,"
+          "『外推』= 只有拟合。")
+    for k, n_cross, obs in (
+            ("4.0 GB (4e9 B)", crossing["4.0 GB (4e9 B)"], observed_dec),
+            ("4 GiB (4·2^30 B)", crossing["4 GiB (4·2^30 B)"], observed_gib)):
+        how = f"✅ 实测越过:N = {obs}" if obs else "⚠️ 外推(没有观测点越过)"
+        print(f"  {k:>20}: N ≈ {n_cross:,.0f}   {how}")
+    if not observed_gib:
+        # 要用**实测**越过,守卫要求 need+1.0 ≤ 0.85·free,按外推 N 反算需要多少空闲
+        need_at_cross = 32 * crossing["4 GiB (4·2^30 B)"] ** 2 + int(0.2 * 2**30)
+        free_for_obs = (need_at_cross + SAFETY_MARGIN_B) / 0.85
+        print(f"     · 要实测越过 4 GiB,守卫要求可用 ≥ {free_for_obs / 2**30:.2f} GiB"
+              f"(此刻 {avail / 2**30:.2f} GiB)⇒ 等机器空闲再补,不降阈值。")
+    print(f"     · 实测最大峰值:N={int(ns[-1])} → {float(pk[-1]) / 2**30:.3f} GiB"
+          f" = {float(pk[-1]) / 1e9:.3f} GB")
     walls = {
-        "total_15.38GiB": n_mem_wall(ms["total_phys_b"] * 0.8),
-        "avail_now_x0.8": n_mem_wall(ms["avail_phys_b"] * 0.8),
-        "budget_11GiB": n_mem_wall(11 * 2**30),
-        "budget_8GiB": n_mem_wall(8 * 2**30),
+        "avail_now_x0.80": n_at_peak(avail * 0.80),
+        "avail_now_guard_rule": n_at_peak(0.85 * avail - SAFETY_MARGIN_B),
+        "idle_window_8.5GiB_x0.80": n_at_peak(8.5 * 2**30 * 0.80),
+        "total_15.38GiB_x0.80": n_at_peak(ms["total_phys_b"] * 0.80),
+        "budget_11GiB": n_at_peak(11 * 2**30),
+        "budget_8GiB": n_at_peak(8 * 2**30),
     }
     print()
-    print("  —— 内存墙(留 20% 余量)——")
+    print("  —— 内存墙(同一个拟合,换「可用量口径」就换 N) ——")
     for k, v in walls.items():
-        print(f"  {k:>16}: N ≈ {v:,.0f}")
+        print(f"  {k:>26}: N ≈ {v:,.0f}")
 
     RESULTS.mkdir(exist_ok=True)
     payload = {
-        "meta": {"ka": K_WAVE * RADIUS, "n_list": sorted(MEM_REPEATS),
-                 "method": "one fresh process per point", "system_memory": ms,
-                 "env": env_facts()},
+        "meta": {
+            "ka": K_WAVE * RADIUS, "n_list": [int(r["n_seg"]) for r in points],
+            "mem_repeats": {str(k): v for k, v in MEM_REPEATS.items()},
+            "mem_top_ladder": [int(x) for x in MEM_TOP_LADDER],
+            "mem_top_chosen": None if top is None else int(top),
+            "method": "one fresh process per point; peak = process PeakWorkingSetSize",
+            "timing_note": "t_assemble/t_solve 是装配的副产品,负载未受控,"
+                           "不得用于 2.1 的时间拟合",
+            "system_memory": ms,
+            "env": env_facts(),
+        },
         "points": points,
+        "points_skipped": skips,
         "fit": {"z_footprint": fit_z,
-                "peak_a_b": [float(coef_m[0]), float(coef_m[1])],
-                "peak_max_resid_b": float(np.max(np.abs(resid_m)))},
+                "z_footprint_big_n": fit_z_big,
+                "z_bytes_per_entry_median": float(np.median(per_entry)),
+                "z_bytes_per_entry_big_median": z_coef_big,
+                "z_footprint_intercept_b_coef": float(math.exp(fit_z["intercept"])),
+                "peak_a_b": [e_b, f_b],
+                "peak_max_resid_b": float(np.max(np.abs(resid_m))),
+                "peak_coef_over_32": f_b / 32.0},
         "mem_walls": walls,
+        "four_gb_crossing": {
+            "n": crossing,
+            "observed_over_4gb_decimal": observed_dec,
+            "observed_over_4gib": observed_gib,
+            "basis": ("实测" if (observed_dec and observed_gib) else
+                      "4.0 GB 实测 / 4 GiB 拟合外推" if observed_dec else
+                      "peak = e + f·N² 拟合外推(两个口径都未实测)"),
+        },
     }
     out = RESULTS / "exp02c_dense_memory.json"
     out.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -789,6 +900,7 @@ def run_memory() -> dict:
     if fig:
         print(f"  已写入 {fig.relative_to(ROOT)}")
     return payload
+
 
 
 def make_memory_figure(payload: dict):
@@ -810,11 +922,13 @@ def make_memory_figure(payload: dict):
     ax.loglog(ns, zf / 2**20, "o-", label=r"$Z$ footprint")
     ax.loglog(ns, 16 * ns**2 / 2**20, "k--", lw=1, label=r"$16N^2$ B")
     ax.loglog(ns, 32 * ns**2 / 2**20, "k:", lw=1, label=r"$32N^2$ B")
+    # 台账 2.2 的验收线:峰值首次越过 4 GB(4e9 B)。画上去,读者一眼看出实测点有没有越过。
+    ax.axhline(4.0e9 / 2**20, color="0.35", ls="-.", lw=1, label="4 GB = 4e9 B")
     ax.set_xlabel("unknowns $N$")
     ax.set_ylabel("memory [MiB]")
     ax.set_title("E2-B dense memory vs $N$ (one fresh process per point)")
     ax.grid(True, which="both", alpha=0.3)
-    ax.legend(fontsize=9)
+    ax.legend(fontsize=8)
     fig.tight_layout()
     FIGURES.mkdir(exist_ok=True)
     path = FIGURES / "exp02c_dense_memory.png"

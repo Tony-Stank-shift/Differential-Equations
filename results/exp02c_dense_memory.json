@@ -1,0 +1,216 @@
+{
+  "meta": {
+    "ka": 5.0,
+    "n_list": [
+      800,
+      1600,
+      3200,
+      6400,
+      11400
+    ],
+    "mem_repeats": {
+      "800": 1,
+      "1600": 1,
+      "3200": 1,
+      "6400": 1
+    },
+    "mem_top_ladder": [
+      11400,
+      11200,
+      11050,
+      10800,
+      10400,
+      10000,
+      9600,
+      8800,
+      8000
+    ],
+    "mem_top_chosen": 11400,
+    "method": "one fresh process per point; peak = process PeakWorkingSetSize",
+    "timing_note": "t_assemble/t_solve 是装配的副产品,负载未受控,不得用于 2.1 的时间拟合",
+    "system_memory": {
+      "total_phys_b": 16510586880,
+      "avail_phys_b": 6660579328,
+      "total_pagefile_b": 20671336448,
+      "avail_pagefile_b": 6446563328,
+      "memory_load_pct": 59
+    },
+    "env": {
+      "python": "3.12.10",
+      "numpy": "2.5.1",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "cpu_count_logical": 24,
+      "thread_env": {
+        "OMP_NUM_THREADS": null,
+        "OPENBLAS_NUM_THREADS": null,
+        "MKL_NUM_THREADS": null,
+        "NUMEXPR_NUM_THREADS": null
+      },
+      "numpy_config_keys": [
+        "Build Dependencies",
+        "Compilers",
+        "Machine Information",
+        "Python Information",
+        "SIMD Extensions"
+      ],
+      "numpy_blas_name": "scipy-openblas"
+    }
+  },
+  "points": [
+    {
+      "kind": "assemble+solve",
+      "n_seg": 800,
+      "quad_order": null,
+      "t_geom_s": 0.0001680999994277954,
+      "t_assemble_s": 2.6257793999975547,
+      "t_solve_s": 0.5004225999873597,
+      "t_total_s": 3.1263700999843422,
+      "ws_before_b": 63860736,
+      "ws_after_assemble_b": 74452992,
+      "ws_after_solve_b": 81432576,
+      "peak_b": 91664384,
+      "z_footprint_b": 10592256,
+      "z_bytes_per_entry": 16.5504,
+      "z00_abs": 0.03303128590188488,
+      "j_max_abs": 2.0375578572432556,
+      "repeat": 0,
+      "avail_phys_b_at_spawn": 6660575232,
+      "memory_load_pct_at_spawn": 59
+    },
+    {
+      "kind": "assemble+solve",
+      "n_seg": 1600,
+      "quad_order": null,
+      "t_geom_s": 0.00023020000662654638,
+      "t_assemble_s": 11.336508799984585,
+      "t_solve_s": 0.5934433999937028,
+      "t_total_s": 11.930182399984915,
+      "ws_before_b": 63512576,
+      "ws_after_assemble_b": 105017344,
+      "ws_after_solve_b": 115933184,
+      "peak_b": 156852224,
+      "z_footprint_b": 41504768,
+      "z_bytes_per_entry": 16.2128,
+      "z00_abs": 0.01859542623815818,
+      "j_max_abs": 2.0375425552663526,
+      "repeat": 0,
+      "avail_phys_b_at_spawn": 6656548864,
+      "memory_load_pct_at_spawn": 59
+    },
+    {
+      "kind": "assemble+solve",
+      "n_seg": 3200,
+      "quad_order": null,
+      "t_geom_s": 0.0004031000135000795,
+      "t_assemble_s": 48.42394069998409,
+      "t_solve_s": 0.8654782000230625,
+      "t_total_s": 49.28982200002065,
+      "ws_before_b": 62918656,
+      "ws_after_assemble_b": 227540992,
+      "ws_after_solve_b": 248262656,
+      "peak_b": 412053504,
+      "z_footprint_b": 164622336,
+      "z_bytes_per_entry": 16.0764,
+      "z00_abs": 0.01034635130839882,
+      "j_max_abs": 2.0375387885300644,
+      "repeat": 0,
+      "avail_phys_b_at_spawn": 6468616192,
+      "memory_load_pct_at_spawn": 60
+    },
+    {
+      "kind": "assemble+solve",
+      "n_seg": 6400,
+      "quad_order": null,
+      "t_geom_s": 0.000454099994385615,
+      "t_assemble_s": 196.91084639998735,
+      "t_solve_s": 2.6070966999977827,
+      "t_total_s": 199.51839719997952,
+      "ws_before_b": 63700992,
+      "ws_after_assemble_b": 716644352,
+      "ws_after_solve_b": 748564480,
+      "peak_b": 1404051456,
+      "z_footprint_b": 652943360,
+      "z_bytes_per_entry": 15.941,
+      "z00_abs": 0.0057006956128470235,
+      "j_max_abs": 2.03753785426544,
+      "repeat": 0,
+      "avail_phys_b_at_spawn": 5976875008,
+      "memory_load_pct_at_spawn": 63
+    },
+    {
+      "kind": "assemble+solve",
+      "n_seg": 11400,
+      "quad_order": null,
+      "t_geom_s": 0.0007991000020410866,
+      "t_assemble_s": 829.9992875000171,
+      "t_solve_s": 9.387397700018482,
+      "t_total_s": 839.3874843000376,
+      "ws_before_b": 63107072,
+      "ws_after_assemble_b": 2143469568,
+      "ws_after_solve_b": 2195603456,
+      "peak_b": 4274847744,
+      "z_footprint_b": 2080362496,
+      "z_bytes_per_entry": 16.007713881194213,
+      "z00_abs": 0.0034480945228158593,
+      "j_max_abs": 2.0375376418213462,
+      "repeat": 0,
+      "avail_phys_b_at_spawn": 6751674368,
+      "memory_load_pct_at_spawn": 59
+    }
+  ],
+  "points_skipped": [],
+  "fit": {
+    "z_footprint": {
+      "intercept": 2.884140150219413,
+      "slope": 1.9873462125850938,
+      "max_abs_resid_log": 0.0071342662774220855,
+      "n_points": 5,
+      "points": [
+        800,
+        1600,
+        3200,
+        6400,
+        11400
+      ]
+    },
+    "z_footprint_big_n": {
+      "intercept": 2.80506029982561,
+      "slope": 1.9963377823226065,
+      "max_abs_resid_log": 0.004070022365471715,
+      "n_points": 3,
+      "points": [
+        3200,
+        6400,
+        11400
+      ]
+    },
+    "z_bytes_per_entry_median": 16.0764,
+    "z_bytes_per_entry_big_median": 16.007713881194213,
+    "z_footprint_intercept_b_coef": 17.888179833381354,
+    "peak_a_b": [
+      76214652.48317026,
+      32.3193537078767
+    ],
+    "peak_max_resid_b": 5234654.856211349,
+    "peak_coef_over_32": 1.009979803371147
+  },
+  "mem_walls": {
+    "avail_now_x0.80": 12747.978192763378,
+    "avail_now_guard_rule": 11814.922507871162,
+    "idle_window_8.5GiB_x0.80": 14951.835041362361,
+    "total_15.38GiB_x0.80": 20157.57653208963,
+    "budget_11GiB": 19055.01096677636,
+    "budget_8GiB": 16230.367223239686
+  },
+  "four_gb_crossing": {
+    "n": {
+      "4.0 GB (4e9 B)": 11018.469827615932,
+      "4 GiB (4·2^30 B)": 11425.11808301665
+    },
+    "observed_over_4gb_decimal": [
+      11400
+    ],
+    "observed_over_4gib": [],
+    "basis": "4.0 GB 实测 / 4 GiB 拟合外推"
+  }
+}
