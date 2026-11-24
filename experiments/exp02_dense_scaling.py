@@ -51,6 +51,9 @@ docstring。**这个结论是错的** —— 按 D16(采纳机制断言前先复
 --------
 - ``--point N``  在**当前**进程里只做 N 这一个点(供编排器调用)
 - ``--solve N``  在**当前**进程里只做"随机复矩阵求解"这一个点
+- ``--fill-time N [reps]``  给**已有**的 ``exp02a`` 产物补一个装配点,把新点并进去后
+  用同一份 ``_finish_time`` 重算拟合/时间墙/图;**不重跑**任何已有点
+  (时间测量受负载影响,重跑会把整张表换成另一组噪声;见 2026-11-24 的 D33)。
 
 输出
 ----
@@ -89,7 +92,10 @@ RADIUS = 5.0
 
 #: 2.1 装配+求解的扫描点 -> 重复次数(每点一条进程;机器负载导致 ~2.5× 散布,
 #: 所以大 N 少测几次、小 N 多测几次。预估合计 ~600 s。)
-TIME_REPEATS = {400: 3, 800: 3, 1600: 3, 3200: 2, 6400: 2}
+TIME_REPEATS = {400: 3, 800: 3, 1600: 3, 3200: 2, 6400: 2, 8000: 2}
+#: ⚠️ 8000 是 2026-11-24 补进来的(台账范围到 8000,主运行当时只到 6400):
+#: 实测单次 523–560 s(装配 + 求解),2 次 ≈ 18 min。
+#: 补点时**不要重跑**已有的 400…6400 —— 用 ``--fill-time 8000``,它复用 _finish_time。
 #: 2.1 纯求解的扫描点 -> 重复次数(不需装配;预估合计 ~120 s)
 #: ⚠️ 必须走到 N≈12000 才看得到 N³:2000…10000 段 BLAS 效率还在爬(50→244 GFLOP/s),
 #: 直接拟合只得到 N^2.05(2026-10-13 实测)。12000 处 32 B/元 × N² ≈ 4.6 GiB,
@@ -560,6 +566,22 @@ def run_time() -> dict:
               f" {agg_t['spread_ratio']:>5.2f} | {flops / agg_t['min'] / 1e9:>15.1f} |"
               f" {runs[0]['resid_rel']:>10.2e}")
 
+    return _finish_time(agg, solve_agg, solve_skips, ms)
+
+
+def _finish_time(agg, solve_agg, solve_skips, ms, *, write=True, payload_ms=None,
+                 meta_extra=None):
+    """时间实验的**分析 + 落盘**（从 ``run_time`` 抽出,供 ``--fill-time`` 复用）。
+
+    为什么要抽出来:补一个点时**绝不能重跑**已有的点(时间测量受负载影响,重跑会把
+    整张表换成另一组噪声),但拟合 / 时间墙 / 图必须按新的点集重算。如果补点脚本
+    自己复制一份公式,两处迟早会分叉(D26)⇒ 分析只保留这一份实现。
+
+    ``write=False``:只返回 payload,不落盘、不画图(给回归对比用:
+    ``_scratch/replay_exp02a.py`` 用它复算旧 JSON,逐位比对)。
+    ``payload_ms``:补点场景下 ``meta.system_memory`` 仍保留**主运行**的机器状态,
+    补点那次的机器状态另记在 ``meta_extra`` 里(不能拿新状态冒充主运行)。
+    """
     ns = np.array(sorted(agg), dtype=float)
     ta_min = np.array([agg[int(n)]["t_assemble"]["min"] for n in ns])
     ts_min = np.array([agg[int(n)]["t_solve"]["min"] for n in ns])
@@ -646,7 +668,7 @@ def run_time() -> dict:
             "time_repeats": {str(k): v for k, v in TIME_REPEATS.items()},
             "solve_repeats": {str(k): v for k, v in SOLVE_REPEATS.items()},
             "method": "repeats per point, fit on min; machine-load spread reported",
-            "system_memory": ms,
+            "system_memory": payload_ms if payload_ms is not None else ms,
             "env": env_facts(),
         },
         "assemble_solve": {str(k): v for k, v in agg.items()},
@@ -665,6 +687,9 @@ def run_time() -> dict:
             "walls": walls,
         },
     }
+    payload["meta"].update(meta_extra or {})
+    if not write:
+        return payload
     out = RESULTS / "exp02a_dense_time.json"
     out.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"\n  已写入 {out.relative_to(ROOT)}")
@@ -672,6 +697,85 @@ def run_time() -> dict:
     if fig:
         print(f"  已写入 {fig.relative_to(ROOT)}")
     return payload
+
+
+def fill_time(n_target: int, reps: int = 2) -> dict:
+    """给**已有**的时间产物补一个装配点,不重跑任何已有点(2.1 的 N=8000 填空)。
+
+    触发:2.1 的台账扫描范围到 N=8000,而主运行(2026-10-12)只到 6400 —— 大 N 点太贵,
+    当时押后。补点与主运行**不在同一个窗口**,因此:
+
+    - 每次启动前重新过一遍 ``memory_admit``(不降阈值),逐次记录当刻可用内存与占用;
+    - 这些机器状态写进 ``meta.fill_run``,``meta.system_memory`` 仍保留**主运行**的那份;
+    - 目标 N 已存在就**拒绝覆盖** —— 时间点重测会把整张表换成另一组噪声,要重测必须
+      显式删掉那一条再跑;
+    - 分析走 ``_finish_time``(与 ``run_time`` 同一份实现),不复制公式(D26)。
+    """
+    src = RESULTS / "exp02a_dense_time.json"
+    if not src.exists():
+        raise SystemExit(f"找不到 {src};先跑 --part time")
+    old = json.loads(src.read_text(encoding="utf-8"))
+    agg = {int(k): v for k, v in old["assemble_solve"].items()}
+    solve_agg = {int(k): v for k, v in old["solve_only"].items()}
+    skips = list(old.get("solve_points_skipped") or [])
+    if n_target in agg:
+        raise SystemExit(f"N={n_target} 已在 {src.name} 里;拒绝覆盖(要重测请先删掉那一条)")
+    if n_target not in TIME_REPEATS:
+        print(f"  [warn] N={n_target} 不在 TIME_REPEATS 常量里,meta.time_repeats 不会列出它")
+
+    ms = system_memory()
+    print("=" * 78)
+    print(f"2.1 补点:N={n_target} × {reps} 次(不重跑任何已有点)")
+    print(f"  可用物理内存 {ms['avail_phys_b'] / 2**30:.2f} GiB,占用 {ms['memory_load_pct']}%")
+    print("  负载纪律:拟合用 min;每次启动前重过内存守卫,逐次记录机器状态。")
+
+    runs: list[dict] = []
+    admit_log: list[dict] = []
+    for i in range(reps):
+        adm = memory_admit(n_target)
+        if not adm["admit"]:
+            _report_skip(adm, [])
+            raise SystemExit("内存守卫不通过,补点中止(**不降阈值**)")
+        r = _spawn(["--point", str(n_target)], timeout_s=7200)
+        r["repeat"] = i
+        r["avail_phys_b_at_admit"] = adm["free_b"]
+        r["memory_load_pct_at_admit"] = adm["memory_load_pct"]
+        runs.append(r)
+        admit_log.append({k: adm[k] for k in ("need_b", "free_b", "memory_load_pct", "rule")})
+        _dump_points(r)
+        print(f"  #{i}: t_assemble {r['t_assemble_s']:.3f} s / t_solve {r['t_solve_s']:.3f} s"
+              f" / 峰值 {r['peak_b'] / 2**20:.1f} MiB(可用 {adm['free_b'] / 2**30:.2f} GiB)")
+
+    entry = {
+        "repeats": reps,
+        "t_assemble": _aggregate(runs, "t_assemble_s"),
+        "t_solve": _aggregate(runs, "t_solve_s"),
+        "t_total": _aggregate(runs, "t_total_s"),
+        "ws_before_b": runs[0]["ws_before_b"],
+        "z_footprint_b": runs[0]["z_footprint_b"],
+        "z_bytes_per_entry": runs[0]["z_bytes_per_entry"],
+        "peak_b": runs[0]["peak_b"],
+        "runs": runs,
+    }
+    agg[n_target] = entry
+    print(f"  ⇒ 装配 min/med/max = {entry['t_assemble']['min']:.3f} / "
+          f"{entry['t_assemble']['median']:.3f} / {entry['t_assemble']['max']:.3f} s"
+          f"(散布 {entry['t_assemble']['spread_ratio']:.2f}×)")
+
+    meta_extra = {"fill_run": {
+        "n": int(n_target), "repeats": int(reps),
+        "at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "why": "2.1 台账扫描范围到 N=8000;主运行(2026-10-12)只到 6400",
+        "system_memory": ms,
+        "admit": admit_log,
+        "session_tag": SESSION_TAG,
+    }}
+    if "env" in old["meta"]:
+        # 其它点都是主运行测的:环境快照必须保留那一份,不能拿今天的 Python/numpy 冒充
+        meta_extra["env"] = old["meta"]["env"]
+    return _finish_time(agg, solve_agg, skips, ms,
+                        payload_ms=old["meta"].get("system_memory"),
+                        meta_extra=meta_extra)
 
 
 def make_time_figure(payload: dict):
@@ -1152,6 +1256,10 @@ if __name__ == "__main__":
         raise SystemExit(_point_main(int(argv[1])))
     if len(argv) >= 2 and argv[0] == "--solve":
         raise SystemExit(_solve_main(int(argv[1])))
+    if len(argv) >= 2 and argv[0] == "--fill-time":
+        reps = int(argv[2]) if len(argv) >= 3 else 2
+        fill_time(int(argv[1]), reps)
+        raise SystemExit(0)
     if len(argv) >= 2 and argv[0] == "--part":
         run(argv[1])
     else:

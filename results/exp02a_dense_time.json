@@ -8,7 +8,8 @@
       "800": 3,
       "1600": 3,
       "3200": 2,
-      "6400": 2
+      "6400": 2,
+      "8000": 2
     },
     "solve_repeats": {
       "2000": 3,
@@ -44,6 +45,34 @@
         "SIMD Extensions"
       ],
       "numpy_blas_name": "scipy-openblas"
+    },
+    "fill_run": {
+      "n": 8000,
+      "repeats": 2,
+      "at_utc": "2026-11-24T07:02:10Z",
+      "why": "2.1 台账扫描范围到 N=8000;主运行(2026-10-12)只到 6400",
+      "system_memory": {
+        "total_phys_b": 16510586880,
+        "avail_phys_b": 5362880512,
+        "total_pagefile_b": 22953037824,
+        "avail_pagefile_b": 8152711168,
+        "memory_load_pct": 67
+      },
+      "admit": [
+        {
+          "need_b": 2262748364,
+          "free_b": 5362880512,
+          "memory_load_pct": 67,
+          "rule": "need + 1.0 GiB <= 0.85*avail 且 need <= 0.5*total"
+        },
+        {
+          "need_b": 2262748364,
+          "free_b": 5605777408,
+          "memory_load_pct": 66,
+          "rule": "need + 1.0 GiB <= 0.85*avail 且 need <= 0.5*total"
+        }
+      ],
+      "session_tag": "20261124T064356"
     }
   },
   "assemble_solve": {
@@ -499,6 +528,88 @@
           "repeat": 1
         }
       ]
+    },
+    "8000": {
+      "repeats": 2,
+      "t_assemble": {
+        "n": 2,
+        "min": 523.3156852000393,
+        "median": 541.6667691500043,
+        "max": 560.0178530999692,
+        "spread_ratio": 1.0701338961126312,
+        "all": [
+          560.0178530999692,
+          523.3156852000393
+        ]
+      },
+      "t_solve": {
+        "n": 2,
+        "min": 4.2385803000070155,
+        "median": 4.327748450043146,
+        "max": 4.416916600079276,
+        "spread_ratio": 1.0420745361535242,
+        "all": [
+          4.2385803000070155,
+          4.416916600079276
+        ]
+      },
+      "t_total": {
+        "n": 2,
+        "min": 527.7334156001452,
+        "median": 545.9953880000394,
+        "max": 564.2573603999335,
+        "spread_ratio": 1.069209081176436,
+        "all": [
+          564.2573603999335,
+          527.7334156001452
+        ]
+      },
+      "ws_before_b": 62484480,
+      "z_footprint_b": 1025523712,
+      "z_bytes_per_entry": 16.023808,
+      "peak_b": 2151694336,
+      "runs": [
+        {
+          "kind": "assemble+solve",
+          "n_seg": 8000,
+          "quad_order": null,
+          "t_geom_s": 0.0009269999573007226,
+          "t_assemble_s": 560.0178530999692,
+          "t_solve_s": 4.2385803000070155,
+          "t_total_s": 564.2573603999335,
+          "ws_before_b": 62484480,
+          "ws_after_assemble_b": 1088008192,
+          "ws_after_solve_b": 1126993920,
+          "peak_b": 2151694336,
+          "z_footprint_b": 1025523712,
+          "z_bytes_per_entry": 16.023808,
+          "z00_abs": 0.004696848249371333,
+          "j_max_abs": 2.037537742528448,
+          "repeat": 0,
+          "avail_phys_b_at_admit": 5362880512,
+          "memory_load_pct_at_admit": 67
+        },
+        {
+          "kind": "assemble+solve",
+          "n_seg": 8000,
+          "quad_order": null,
+          "t_geom_s": 0.0008138000266626477,
+          "t_assemble_s": 523.3156852000393,
+          "t_solve_s": 4.416916600079276,
+          "t_total_s": 527.7334156001452,
+          "ws_before_b": 62242816,
+          "ws_after_assemble_b": 1085091840,
+          "ws_after_solve_b": 1125261312,
+          "peak_b": 2149425152,
+          "z_footprint_b": 1022849024,
+          "z_bytes_per_entry": 15.982016,
+          "z00_abs": 0.004696848249371333,
+          "j_max_abs": 2.037537742528448,
+          "repeat": 1,
+          "avail_phys_b_at_admit": 5605777408,
+          "memory_load_pct_at_admit": 66
+        }
+      ]
     }
   },
   "solve_only": {
@@ -746,31 +857,42 @@
       "resid_rel": 5.506499585384696e-11
     }
   },
+  "solve_points_run": [
+    2000,
+    4000,
+    8000,
+    10000,
+    12000
+  ],
+  "solve_points_skipped": [],
+  "session_tag": "20261124T064356",
   "fit": {
     "assemble_min": {
-      "intercept": -12.574037840370496,
-      "slope": 2.075945068934108,
-      "max_abs_resid_log": 0.13070619638721404,
-      "n_points": 5,
+      "intercept": -12.805598041693685,
+      "slope": 2.110094892512165,
+      "max_abs_resid_log": 0.15109516018144653,
+      "n_points": 6,
       "points": [
         400,
         800,
         1600,
         3200,
-        6400
+        6400,
+        8000
       ]
     },
     "assemble_median": {
-      "intercept": -13.227719868095106,
-      "slope": 2.1919833889937586,
-      "max_abs_resid_log": 0.60632791861884,
-      "n_points": 5,
+      "intercept": -12.996003621041746,
+      "slope": 2.1578105522462283,
+      "max_abs_resid_log": 0.6504174277422745,
+      "n_points": 6,
       "points": [
         400,
         800,
         1600,
         3200,
-        6400
+        6400,
+        8000
       ]
     },
     "solve_only_min": {
@@ -798,22 +920,22 @@
       ]
     }
   },
-  "assemble_ns_per_n2q": 375.3756640435313,
+  "assemble_ns_per_n2q": 400.3596803951126,
   "time_wall": {
     "assemble_a_b": [
-      -0.8665831139681018,
-      6.8399842168247594e-06
+      -7.787427120142873,
+      7.919170641202889e-06
     ],
-    "assemble_max_resid_s": 3.0300553809554707,
+    "assemble_max_resid_s": 37.828557243614114,
     "solve_c_d": [
       0.5968920482494869,
       5.0181365213974155e-12
     ],
     "walls": {
-      "60s": 2965.1731963065286,
-      "300s": 6609.639380673481,
-      "600s": 9336.055097573993,
-      "1800s": 16128.238447280837
+      "60s": 2910.1416842106437,
+      "300s": 6215.99171426899,
+      "600s": 8732.21477646588,
+      "1800s": 15034.98869538579
     }
   }
 }

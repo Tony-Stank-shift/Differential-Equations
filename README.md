@@ -35,7 +35,7 @@
 |---|---|---|---|
 | E1 | MoM 解 vs Mie 级数解析解 | 正确性验证 | 内容已覆盖（`tests/check_mom.py`），**无独立模块** |
 | E2 | 稠密求解时间 / 内存 vs N | 展示 O(N^3) 增长与内存墙 | **时间已完成**（`experiments/exp02_dense_scaling.py`，2026-10-13）；**内存也已完成**（2026-10-19，`results/exp02c_dense_memory.json`） |
-| E3 | ACA 块秩特性 | 低秩性的经验证据 | 3.1 聚类已完成（`src/cluster.py`）；`aca.py`/`exp03` 未开始 |
+| E3 | ACA 块秩特性 | 低秩性的经验证据 | 3.1 聚类 + 3.2 `aca.py` 已完成；`exp03`（块秩 vs ka）未开始 |
 | E4 | H 矩阵组装 / 求解时间 vs N | 展示加速效果 | 未开始 |
 | E5 | 块秩 vs 电尺寸 ka | 找出失效边界 | 未开始 |
 | E6 | 固定秩 / ACA 自适应 / NN 预测 三方对比 | 端到端收益 | 未开始 |
@@ -103,11 +103,13 @@ python tests/check_mom.py        # 1.3 矩量法(含黄金值 J 与鉴别力 K �
 python tests/check_rcs.py        # 1.4 远场 RCS 对 Mie 解析解(含判据 A/M/E/S/R/C 与鉴别力 K)
 python tests/check_cluster.py    # 3.1 二叉树聚类(48 项 = 42 鉴别力 + 6 基线)
 python tests/mut_check_cluster.py  # 3.1 的鉴别力审计:10 个变异体必须全部变红
+python tests/check_aca.py        # 3.2 部分主元 ACA(87 项,全部有鉴别力)
+python tests/mut_check_aca.py    # 3.2 的鉴别力审计:20 个变异体必须全部变红
 ```
 
 四套共 **189 项**(green 17 / quad 28 / mom 72 / rcs 72),全部 `exit 0`(2026-10-13 实测;第 12 轮复核把 `check_quad` 的一条"已知事实"从判据降级为 `[info]`,故 29→28)。
-**新增第五套 `check_cluster` = 48 项**(42 条有鉴别力 + 6 条基线,2026-10-19),它不在那 189 项里 —— 两套数字**不要相加后混报**(D24:口径要分开写)。
-计数口径见 D24:数字要分开报"有鉴别力的判据"与"恒定 PASS 的冒烟基线"——`check_rcs` 已甄别出 **71 + 1 基线(M4)**,`check_cluster` 已甄别出 **42 + 6 基线**;其余三套尚**未逐条甄别**是否有同类基线。
+**新增第五套 `check_cluster` = 48 项**(42 条有鉴别力 + 6 条基线,2026-10-19)、**第六套 `check_aca` = 87 项**(87 + 0,2026-11-24);它们不在那 189 项里 —— 几套数字**不要相加后混报**(D24:口径要分开写)。
+计数口径见 D24:数字要分开报"有鉴别力的判据"与"恒定 PASS 的冒烟基线"——`check_rcs` 已甄别出 **71 + 1 基线(M4)**,`check_cluster` **42 + 6**,`check_aca` **87 + 0**;其余三套尚**未逐条甄别**是否有同类基线。
 **每个判据都必须能变红**(纪律 D14):`check_*.py` 里的
 `K` 组就是"故意做错,必须变红"的孪生反例 —— 一个无论对错都 PASS 的判据是装饰。
 `check_cluster` 还额外带一个**元测试** `mut_check_cluster.py`:把模块/检查器逐个改坏,
@@ -172,7 +174,7 @@ proj/
 │    mom.py           矩量法:填充 Z、V
 │    rcs.py           远场幅度与散射宽度(含 Mie 级数远场,Mie 角核见 D19)
 │    cluster.py       二叉树聚类(高度平衡;叶子大小 ∈{⌊N/k⌋,⌈N/k⌉})  [3.1 已完成]
-│    aca.py           部分主元 ACA          [路线图 3.x,尚未实现]
+│    aca.py           部分主元 ACA(逐层契约 + 主元回退)              [3.2 已完成]
 │    hmatrix.py       H 矩阵组装与存储      [路线图 3.x,尚未实现]
 │    nnrank.py        神经网络秩预测        [路线图 4.x,尚未实现]
 │    solve.py         线性求解              [路线图 4.x,尚未实现]
@@ -183,6 +185,8 @@ proj/
 │    check_rcs.py     1.4 自检
 │    check_cluster.py 3.1 自检(48 项)
 │    mut_check_cluster.py  3.1 的鉴别力元测试(变异体必须变红)
+│    check_aca.py     3.2 自检(59 项)
+│    mut_check_aca.py 3.2 的鉴别力元测试(变异体必须变红)
 ├─ experiments/
 │    registry.md      实验登记簿(配置 -> 脚本 -> 输出 -> 图)
 │    exp02_dense_scaling.py  E2:稠密时间 / 内存 vs N(已实现)
