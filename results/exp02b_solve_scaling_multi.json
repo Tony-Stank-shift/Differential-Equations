@@ -10,6 +10,16 @@
       "14000": 1
     },
     "threads": "default",
+    "threads_evidence": "numpy 链接 scipy-openblas;OPENBLAS_NUM_THREADS 未设置 ⇒ 后端自选(实测会跑满核)",
+    "solve_points_run": [
+      2000,
+      4000,
+      8000,
+      12000,
+      14000
+    ],
+    "solve_points_skipped": [],
+    "session_tag": "20261124T084930",
     "system_memory": {
       "total_phys_b": 16510586880,
       "avail_phys_b": 7489294336,
@@ -36,7 +46,70 @@
         "SIMD Extensions"
       ],
       "numpy_blas_name": "scipy-openblas"
-    }
+    },
+    "fill_run": {
+      "n": 12000,
+      "repeats": 1,
+      "at_utc": "2026-11-24T08:49:45Z",
+      "why": "12000/14000 现有产物是旧内存守卫放行的;新守卫需重跑,且 --part solve 会重跑全部点",
+      "system_memory": {
+        "total_phys_b": 16510586880,
+        "avail_phys_b": 6960959488,
+        "total_pagefile_b": 22953037824,
+        "avail_pagefile_b": 9844731904,
+        "memory_load_pct": 57
+      },
+      "admit": [
+        {
+          "need_b": 4822748364,
+          "free_b": 6960959488,
+          "memory_load_pct": 57,
+          "rule": "need + 1.0 GiB <= 0.85*avail 且 need <= 0.5*total"
+        }
+      ],
+      "session_tag": "20261124T084930"
+    },
+    "superseded": [
+      {
+        "n": 12000,
+        "measured_at_utc": null,
+        "archived_at_utc": "2026-11-24T08:49:45Z",
+        "note": "旧守卫(need≤0.95×free,2026-10-12/13)放行的产物;原始产物没有时间戳",
+        "entry": {
+          "repeats": 1,
+          "t_solve": {
+            "n": 1,
+            "min": 10.435460799839348,
+            "median": 10.435460799839348,
+            "max": 10.435460799839348,
+            "spread_ratio": 1.0,
+            "all": [
+              10.435460799839348
+            ]
+          },
+          "runs": [
+            {
+              "kind": "solve-only",
+              "n_seg": 12000,
+              "t_alloc_s": 1.9188373000361025,
+              "t_solve_s": 10.435460799839348,
+              "peak_b": 4697530368,
+              "ws_after_alloc_b": 2340474880,
+              "alloc_footprint_b": 2304126976,
+              "ideal_flops": 4608000000000.0,
+              "gflops": 441.571300816054,
+              "resid_rel": 5.506499585384696e-11,
+              "repeat": 0
+            }
+          ],
+          "resid_rel": 5.506499585384696e-11,
+          "gflops_min": 441.571300816054,
+          "peak_b": 4697530368,
+          "t_over_n3": 6.039039814721845e-12
+        }
+      }
+    ],
+    "measurement_note": "12000 于 2026-11-24 08:49Z 在新守卫下重测;当时电源方案=平衡、% Processor Performance≈84%(见 STATE.md 2.1(a) 的跨窗口说明)。"
   },
   "solve_only": {
     "2000": {
@@ -177,38 +250,6 @@
       "peak_b": 2124881920,
       "t_over_n3": 7.679949023440713e-12
     },
-    "12000": {
-      "repeats": 1,
-      "t_solve": {
-        "n": 1,
-        "min": 10.435460799839348,
-        "median": 10.435460799839348,
-        "max": 10.435460799839348,
-        "spread_ratio": 1.0,
-        "all": [
-          10.435460799839348
-        ]
-      },
-      "runs": [
-        {
-          "kind": "solve-only",
-          "n_seg": 12000,
-          "t_alloc_s": 1.9188373000361025,
-          "t_solve_s": 10.435460799839348,
-          "peak_b": 4697530368,
-          "ws_after_alloc_b": 2340474880,
-          "alloc_footprint_b": 2304126976,
-          "ideal_flops": 4608000000000.0,
-          "gflops": 441.571300816054,
-          "resid_rel": 5.506499585384696e-11,
-          "repeat": 0
-        }
-      ],
-      "resid_rel": 5.506499585384696e-11,
-      "gflops_min": 441.571300816054,
-      "peak_b": 4697530368,
-      "t_over_n3": 6.039039814721845e-12
-    },
     "14000": {
       "repeats": 1,
       "t_solve": {
@@ -240,13 +281,48 @@
       "gflops_min": 458.28133984432264,
       "peak_b": 6368219136,
       "t_over_n3": 5.818841909584467e-12
+    },
+    "12000": {
+      "repeats": 1,
+      "t_solve": {
+        "n": 1,
+        "min": 10.973830500035547,
+        "median": 10.973830500035547,
+        "max": 10.973830500035547,
+        "spread_ratio": 1.0,
+        "all": [
+          10.973830500035547
+        ]
+      },
+      "runs": [
+        {
+          "kind": "solve-only",
+          "n_seg": 12000,
+          "solver_impl": "inplace-view-fill",
+          "t_alloc_s": 2.8147491000127047,
+          "t_solve_s": 10.973830500035547,
+          "peak_b": 4698324992,
+          "ws_after_alloc_b": 2341974016,
+          "alloc_footprint_b": 2304049152,
+          "ideal_flops": 4608000000000.0,
+          "gflops": 419.9080712960779,
+          "resid_rel": 5.506499585384696e-11,
+          "repeat": 0,
+          "avail_phys_b_at_admit": 6960959488,
+          "memory_load_pct_at_admit": 57
+        }
+      ],
+      "resid_rel": 5.506499585384696e-11,
+      "gflops_min": 419.9080712960779,
+      "peak_b": 4698324992,
+      "t_over_n3": 6.350596354187238e-12
     }
   },
   "fit": {
     "single_power_min": {
-      "intercept": -13.57869010935045,
-      "slope": 1.6871111602913598,
-      "max_abs_resid_log": 0.45238329129945615,
+      "intercept": -13.673901054785956,
+      "slope": 1.6991225459943373,
+      "max_abs_resid_log": 0.45679537513085694,
       "n_points": 5,
       "points": [
         2000,
@@ -257,10 +333,10 @@
       ]
     },
     "two_term_N2_N3_coef": [
-      3.443125189039554e-08,
-      3.3088725183815454e-12
+      4.064749279341718e-08,
+      2.922110640783453e-12
     ],
-    "two_term_max_rel_resid": 0.7530016779783378
+    "two_term_max_rel_resid": 0.7202519860641371
   },
   "per_point": [
     {
@@ -283,9 +359,9 @@
     },
     {
       "n": 12000,
-      "t_min_s": 10.435460799839348,
-      "gflops": 441.571300816054,
-      "t_over_n3": 6.039039814721845e-12
+      "t_min_s": 10.973830500035547,
+      "gflops": 419.9080712960779,
+      "t_over_n3": 6.350596354187238e-12
     },
     {
       "n": 14000,

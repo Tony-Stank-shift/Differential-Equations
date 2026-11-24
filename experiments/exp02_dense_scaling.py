@@ -54,6 +54,8 @@ docstring。**这个结论是错的** —— 按 D16(采纳机制断言前先复
 - ``--fill-time N [reps]``  给**已有**的 ``exp02a`` 产物补一个装配点,把新点并进去后
   用同一份 ``_finish_time`` 重算拟合/时间墙/图;**不重跑**任何已有点
   (时间测量受负载影响,重跑会把整张表换成另一组噪声;见 2026-11-24 的 D33)。
+- ``--fill-solve N [reps]`` 给**已有**的 ``exp02b_solve_scaling_*`` 补一个纯求解点
+  (12000/14000 是旧守卫放行的;``--part solve`` 会重跑全部点并覆盖整张表)。
 
 输出
 ----
@@ -1146,6 +1148,16 @@ def run_solve() -> dict:
               f" {p_loc:>8.3f} | {runs[0]['resid_rel']:>9.2e}")
         prev = (n, t["min"])
 
+    return _finish_solve(agg, skips, tag, why, ms, env)
+
+
+def _finish_solve(agg, skips, tag, why, ms, env, *, write=True, payload_ms=None,
+                  meta_extra=None):
+    """纯求解实验的**分析 + 落盘**（从 ``run_solve`` 抽出,供 ``--fill-solve`` 复用）。
+
+    与 ``_finish_time`` 同构:补点时只测那一个 N,拟合/两项模型/图按新点集重算,
+    不复制公式(D26)。``write=False`` 只返回 payload(回归对比用)。
+    """
     sn = np.array(sorted(agg), dtype=float)
     ts = np.array([agg[int(n)]["t_solve"]["min"] for n in sn])
     fit = _loglog_fit(sn, ts) if len(sn) >= 2 else None
@@ -1172,7 +1184,7 @@ def run_solve() -> dict:
             "solve_points_run": sorted(int(k) for k in agg),
             "solve_points_skipped": skips,
             "session_tag": SESSION_TAG,
-            "system_memory": ms,
+            "system_memory": payload_ms if payload_ms is not None else ms,
             "env": env,
         },
         "solve_only": {str(k): v for k, v in agg.items()},
@@ -1183,6 +1195,9 @@ def run_solve() -> dict:
                        "gflops": float(agg[int(n)]["gflops_min"]),
                        "t_over_n3": float(agg[int(n)]["t_over_n3"])} for n in sn],
     }
+    payload["meta"].update(meta_extra or {})
+    if not write:
+        return payload
     tag_name = "single" if tag == "1" else "multi"
     out = RESULTS / f"exp02b_solve_scaling_{tag_name}.json"
     out.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -1191,6 +1206,97 @@ def run_solve() -> dict:
     if fig:
         print(f"  已写入 {fig.relative_to(ROOT)}")
     return payload
+
+
+def fill_solve(n_target: int, reps: int = 1, *, replace: bool = False) -> dict:
+    """给**已有**的纯求解产物补一个 N,不重跑已有点(2.1 的 12000/14000 填空)。
+
+    触发:现有 ``exp02b_solve_scaling_{single,multi}.json`` 里的 12000/14000 是**旧守卫**
+    放行的(当时余量只有 1.04 GiB)。新守卫下要重跑;而 ``--part solve`` 会把 2000…10000
+    全部重测并覆盖整张表 —— 所以这里只测目标 N,再调 ``_finish_solve`` 重算。
+
+    纪律与 ``fill_time`` 同构:
+    - 每次启动前重过 ``memory_admit``(不降阈值),逐次记录当刻可用内存;
+    - 默认目标 N 已存在就拒绝覆盖;**replace=True** 时把旧条目原样存进
+      ``meta.superseded``(不丢旧值,便于审计),再重测;
+    - 机器状态写 ``meta.fill_run``,不冒充主运行;
+    - 线程标签/环境快照沿用旧产物(否则 12,000 会被记成"今天的线程数")。
+    """
+    env = env_facts()
+    tag, why = effective_thread_label(env)
+    tag_name = "single" if tag == "1" else "multi"
+    src = RESULTS / f"exp02b_solve_scaling_{tag_name}.json"
+    if not src.exists():
+        raise SystemExit(f"找不到 {src};先跑 --part solve")
+    old = json.loads(src.read_text(encoding="utf-8"))
+    agg = {int(k): v for k, v in old["solve_only"].items()}
+    skips = list(old.get("solve_points_skipped") or [])
+    old_entry = None
+    if n_target in agg:
+        if not replace:
+            raise SystemExit(f"N={n_target} 已在 {src.name} 里;拒绝覆盖"
+                             f"(要重测请用 --refill-solve,或先删掉那一条)")
+        old_entry = agg.pop(n_target)
+
+    ms = system_memory()
+    print("=" * 78)
+    print(f"2.1 补纯求解点:N={n_target} × {reps} 次({tag_name} 线程;不重跑已有点)")
+    print(f"  可用物理内存 {ms['avail_phys_b'] / 2**30:.2f} GiB,占用 {ms['memory_load_pct']}%")
+
+    runs: list[dict] = []
+    admit_log: list[dict] = []
+    for i in range(reps):
+        adm = memory_admit(n_target)
+        if not adm["admit"]:
+            _report_skip(adm, [])
+            raise SystemExit("内存守卫不通过,补点中止(**不降阈值**)")
+        r = _spawn(["--solve", str(n_target)], timeout_s=7200)
+        r["repeat"] = i
+        r["avail_phys_b_at_admit"] = adm["free_b"]
+        r["memory_load_pct_at_admit"] = adm["memory_load_pct"]
+        runs.append(r)
+        admit_log.append({k: adm[k] for k in ("need_b", "free_b", "memory_load_pct", "rule")})
+        _dump_points(r)
+        print(f"  #{i}: t_solve {r['t_solve_s']:.3f} s / {r['gflops']:.0f} GFLOP/s"
+              f" / 峰值 {r['peak_b'] / 2**20:.1f} MiB(可用 {adm['free_b'] / 2**30:.2f} GiB)")
+
+    _require_resid(runs[0])
+    t = _aggregate(runs, "t_solve_s")
+    gfl = (8.0 / 3.0) * n_target**3 / t["min"] / 1e9
+    agg[n_target] = {"repeats": reps, "t_solve": t, "runs": runs,
+                     "resid_rel": runs[0]["resid_rel"], "gflops_min": gfl,
+                     "peak_b": runs[0]["peak_b"], "t_over_n3": t["min"] / n_target**3}
+    print(f"  ⇒ t_solve min/med/max = {t['min']:.3f} / {t['median']:.3f} / {t['max']:.3f} s"
+          f"(散布 {t['spread_ratio']:.2f}×, {gfl:.0f} GFLOP/s)")
+
+    meta_extra = {"fill_run": {
+        "n": int(n_target), "repeats": int(reps),
+        "at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "why": "12000/14000 现有产物是旧内存守卫放行的;新守卫需重跑,且 --part solve 会重跑全部点",
+        "system_memory": ms,
+        "admit": admit_log,
+        "session_tag": SESSION_TAG,
+    }}
+    if old_entry is not None:
+        # 旧值不丢:重测前后都能审计(否则"重测"等于把证据擦掉)。
+        # 用**列表**而不是单条:同一个点可能被重测多次,每次都要留档。
+        prev = old.get("meta", {}).get("superseded")
+        if prev is None:
+            hist: list = []
+        elif isinstance(prev, dict):
+            hist = [prev]
+        else:
+            hist = list(prev)
+        hist.append({
+            "n": int(n_target),
+            "at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "reason": "旧守卫 need≤0.95×free 放行的点(或上一次重测);按新守卫重测",
+            "entry": old_entry,
+        })
+        meta_extra["superseded"] = hist
+    return _finish_solve(agg, skips, tag, why, ms, old["meta"].get("env", env),
+                         payload_ms=old["meta"].get("system_memory"),
+                         meta_extra=meta_extra)
 
 
 def make_solve_figure(payload: dict, tag: str):
@@ -1259,6 +1365,14 @@ if __name__ == "__main__":
     if len(argv) >= 2 and argv[0] == "--fill-time":
         reps = int(argv[2]) if len(argv) >= 3 else 2
         fill_time(int(argv[1]), reps)
+        raise SystemExit(0)
+    if len(argv) >= 2 and argv[0] == "--fill-solve":
+        reps = int(argv[2]) if len(argv) >= 3 else 1
+        fill_solve(int(argv[1]), reps)
+        raise SystemExit(0)
+    if len(argv) >= 2 and argv[0] == "--refill-solve":
+        reps = int(argv[2]) if len(argv) >= 3 else 1
+        fill_solve(int(argv[1]), reps, replace=True)
         raise SystemExit(0)
     if len(argv) >= 2 and argv[0] == "--part":
         run(argv[1])
